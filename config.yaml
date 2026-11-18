@@ -1,0 +1,104 @@
+# ============================================================
+#  ClipsReal — configuração principal
+#  (segredos ficam no arquivo .env, nunca aqui)
+# ============================================================
+
+channel:
+  name: "GTA VI"
+  handle: "@BabyDragonOFC"
+  language: "pt-BR"
+  niche: "GTA 6 / GTA VI (Grand Theft Auto VI) — cortes, gameplay, segredos, notícias"
+  default_hashtags: ["#GTA6", "#GTAVI", "#Shorts"]
+  cta: "Inscreva-se no canal para cortes de GTA 6 todos os dias!"
+  watermark_text: "@BabyDragonOFC"
+
+llm:
+  provider: gemini
+  model: auto                 # "auto" escolhe o Gemini Flash mais novo disponível na sua chave
+  use_video_analysis: true    # envia uma versão leve do vídeo ao Gemini (essencial p/ gameplay sem fala)
+  max_video_minutes_for_upload: 50
+  transcript_chunk_minutes: 30
+
+transcription:
+  enabled: true
+  model: small                # tiny | base | small | medium | large-v3 (CPU: small é o melhor custo/benefício)
+  device: cpu                 # cpu | cuda
+  compute_type: int8
+  language: null              # null = detectar automaticamente ("pt", "en"...)
+
+clips:
+  target_count: 10            # quantos cortes gerar por vídeo
+  min_seconds: 15
+  max_seconds: 58             # Shorts até 60s para máxima compatibilidade
+  min_score: 50               # cortes abaixo desse score viral são descartados
+
+render:
+  mode: blur                  # blur (gameplay centralizado + fundo desfocado) | crop | face | fit
+  fg_zoom: 1.15               # zoom do vídeo central no modo blur (1.0 = largura total)
+  width: 1080
+  height: 1920
+  fps: 30
+  crf: 21
+  preset: veryfast
+  loudnorm: true
+  captions: true
+  hook_title: true
+  watermark: true
+  caption_font: "Arial Black"
+  caption_size: 82
+  caption_color: "&H00FFFFFF"     # ASS BGR: branco
+  highlight_color: "&H0000E5FF"   # ASS BGR: amarelo
+  caption_margin_v: 470
+  words_per_group: 3
+  hook_font: "Arial Black"
+  hook_size: 66
+
+upload:
+  privacy: public             # public | unlisted | private (agendados sobem como private + publishAt)
+  category_id: "20"           # 20 = Gaming
+  made_for_kids: false
+  timezone: "America/Sao_Paulo"
+  slots: ["07:30", "11:00", "13:00", "16:00", "18:30", "20:00", "21:30", "23:00"]
+  max_per_day: 6              # limite real da cota padrão da API (10.000 unidades/dia)
+
+monitor:
+  interval_minutes: 30
+  auto_upload: false
+  sources: []
+  # Exemplo (use apenas fontes que você tem direito de usar — seus próprios VODs/lives):
+  # - name: "Meu canal de lives"
+  #   channel_id: "UCxxxxxxxxxxxxxxxxxxxxxx"
+
+trend_keywords:
+  - gta 6
+  - gta vi
+  - gta6
+  - vice city
+  - leonida
+  - lucia
+  - jason
+  - rockstar
+  - trailer
+  - easter egg
+  - segredo
+  - bug
+  - glitch
+  - polícia
+  - perseguição
+  - assalto
+  - heist
+  - online
+  - mapa
+  - carro
+  - dinheiro
+  - lançamento
+  - gameplay
+  - física
+  - insano
+  - absurdo
+  - ninguém percebeu
+  - detalhe
+  - port of gellhorn
+  - ambrosia
+  - grassrivers
+  - keys

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClipsReal — Clipagem GTA 6</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">▶</span> Clips<b>Real</b> <small>GTA 6 edition</small></div>
+  <div class="head-right">
+    <div id="pills" class="pills"></div>
+    <button id="open-cfg" class="small">⚙ Configurar</button>
+  </div>
+</header>
+
+<main>
+  <section class="card new-job">
+    <h2>Novo corte automático</h2>
+    <div class="row">
+      <input id="source" placeholder="Cole o link (YouTube, Twitch, Kick, Drive...) ou caminho do arquivo C:\...\video.mp4">
+      <label class="file-btn">📁 Arquivo<input type="file" id="file" accept="video/*" hidden></label>
+    </div>
+    <div class="row opts">
+      <label>Cortes <input type="number" id="count" min="1" max="40" value="10"></label>
+      <label>Formato
+        <select id="mode">
+          <option value="blur">Blur (gameplay centralizado)</option>
+          <option value="crop">Crop central</option>
+          <option value="face">Rastrear rosto (facecam/podcast)</option>
+          <option value="fit">Encaixar com barras</option>
+        </select>
+      </label>
+      <label>Score mínimo <input type="number" id="minscore" min="0" max="100" value="50"></label>
+      <label class="chk"><input type="checkbox" id="autoup"> Agendar upload automático</label>
+      <button id="go" class="primary">⚡ Gerar cortes</button>
+    </div>
+    <div id="upbar" class="progress hidden"><div></div></div>
+  </section>
+
+  <div class="layout">
+    <aside class="card">
+      <h2>Trabalhos</h2>
+      <div id="jobs"></div>
+    </aside>
+    <section class="card clips-panel">
+      <div class="clips-head">
+        <h2 id="jobtitle">Selecione um trabalho</h2>
+        <div class="actions">
+          <button id="selall">Selecionar todos</button>
+          <button id="compile" class="accent">🎬 Gerar vídeo longo (selecionados)</button>
+          <button id="upsel" class="primary">⬆ Agendar selecionados</button>
+        </div>
+      </div>
+      <div id="jobinfo" class="muted"></div>
+      <div id="clips" class="grid"></div>
+    </section>
+  </div>
+</main>
+
+<div id="cfg-modal" class="modal hidden">
+  <div class="modal-card card">
+    <div class="clips-head">
+      <h2>⚙ Configuração rápida (para rodar hoje)</h2>
+      <button id="close-cfg" class="small">✕</button>
+    </div>
+    <div class="cfg-grid">
+      <div class="cfg-box">
+        <h3>1. Inteligência Artificial (Gemini)</h3>
+        <p class="muted">Chave grátis em <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>. Sem ela, o sistema usa modo heurístico.</p>
+        <div class="row">
+          <input id="cfg-gem" type="password" placeholder="Cole sua GEMINI_API_KEY aqui" style="flex:1">
+          <button id="cfg-test-gem" class="small">⚡ Testar IA</button>
+        </div>
+        <div id="cfg-gem-st" class="muted" style="font-size:12px;margin-top:6px"></div>
+      </div>
+
+      <div class="cfg-box">
+        <h3>2. YouTube Data API v3 (Upload & Agendamento)</h3>
+        <p class="muted">Suba o <code>client_secret.json</code> (App para computador / OAuth) e conecte o canal.</p>
+        <div class="row">
+          <label class="file-btn small">📄 Enviar client_secret.json<input type="file" id="cfg-secret" accept=".json,application/json" hidden></label>
+          <button id="cfg-yt-conn" class="small primary">🔗 Conectar canal</button>
+        </div>
+        <div id="cfg-yt-st" class="muted" style="font-size:12px;margin-top:6px"></div>
+      </div>
+
+      <div class="cfg-box">
+        <h3>3. Canal & Horários de Agendamento</h3>
+        <div class="row opts">
+          <label>Handle <input id="cfg-handle" style="width:140px"></label>
+          <label>Máx/dia <input id="cfg-maxday" type="number" min="1" max="30" style="width:65px"></label>
+        </div>
+        <div class="lbl" style="margin-top:8px">Horários (separados por vírgula, fuso BRT)</div>
+        <input id="cfg-slots" style="width:100%;margin-top:6px" placeholder="07:30, 11:00, 13:00, 16:00, 18:30, 20:00">
+      </div>
+
+      <div class="cfg-box">
+        <h3>4. Monitor Automático de Fontes (RSS YouTube)</h3>
+        <p class="muted">1 canal por linha no formato <code>Nome | UCxxxxxxxx</code> (use apenas canais/VODs próprios ou autorizados).</p>
+        <textarea id="cfg-sources" rows="3" style="width:100%" placeholder="Meu Canal de Lives | UCxxxxxxxxxxxxxxxxxxxxxx"></textarea>
+        <div class="row" style="margin-top:8px">
+          <label class="chk"><input type="checkbox" id="cfg-mon-auto"> Agendar upload automático ao detectar novo vídeo</label>
+          <button id="cfg-mon-check" class="small">🔄 Checar fontes agora</button>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px">
+      <button id="cfg-save" class="primary">💾 Salvar configurações</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
