@@ -50,7 +50,7 @@ def main(argv=None):
 
     if a.cmd == "doctor":
         from . import media, render, youtube
-        from .config import gemini_key, youtube_client_secret
+        from .config import gemini_key, youtube_client_secret, youtube_cookies_browser, youtube_cookies_file
         from .llm import get_llm
         ok = True
         try:
@@ -67,6 +67,10 @@ def main(argv=None):
                 print("Gemini modelo . ERRO", e)
         print("client_secret .", "OK" if youtube_client_secret().exists() else f"FALTANDO ({youtube_client_secret()})")
         print("YouTube token .", "OK" if youtube.is_authenticated() else "não autenticado (rode: auth)")
+        cfile = youtube_cookies_file()
+        cbrowser = youtube_cookies_browser()
+        c_st = f"OK ({cfile.name})" if cfile.is_file() else (f"OK (navegador: {cbrowser})" if cbrowser else "não configurado (opcional p/ +18)")
+        print("YT cookies ....", c_st)
         sys.exit(0 if ok else 1)
 
     if a.cmd == "auth":

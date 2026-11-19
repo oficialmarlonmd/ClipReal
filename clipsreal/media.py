@@ -91,9 +91,16 @@ def make_proxy(video: str | Path, out: str | Path, height: int = 360) -> Path:
     return Path(out)
 
 
-def scene_changes(video: str | Path, threshold: float = 0.35) -> list[float]:
-    p = run(["-i", video, "-an", "-vf", f"fps=4,scale=256:-2,select='gt(scene,{threshold})',showinfo",
-             "-f", "null", "-"], check=False)
+def scene_changes(video: str | Path, threshold: float = 0.35, duration: float = 0.0) -> list[float]:
+    """Detecta cortes de cena; em vídeos > 1h usa apenas keyframes para acelerar lives longas."""
+    if duration > 3600:
+        thr = max(0.25, threshold - 0.07)
+        args = ["-skip_frame", "nokey", "-i", video, "-an",
+                "-vf", f"scale=256:-2,select='gt(scene,{thr})',showinfo", "-f", "null", "-"]
+    else:
+        args = ["-i", video, "-an",
+                "-vf", f"fps=4,scale=256:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"]
+    p = run(args, check=False)
     return [float(x) for x in re.findall(r"pts_time:([\d.]+)", p.stderr)]
 
 

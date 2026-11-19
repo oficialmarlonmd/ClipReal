@@ -148,7 +148,7 @@
           </div>
 
           <div class="row opts">
-            <label>Cortes <input type="number" id="count" min="1" max="40" value="10"></label>
+            <label>Cortes <input type="number" id="count" min="1" max="100" value="10"></label>
             <label>Idioma
               <select id="lang">
                 <option value="auto">Auto (PT / EN)</option>
@@ -159,6 +159,7 @@
             <label>Score mínimo <input type="number" id="minscore" min="0" max="100" value="50"></label>
             <label class="chk"><input type="checkbox" id="opt-hook" checked> Gancho na tela</label>
             <label class="chk"><input type="checkbox" id="opt-caps" checked> Legendas</label>
+            <label class="chk"><input type="checkbox" id="opt-censor" checked> Censura +18 local</label>
             <label class="chk"><input type="checkbox" id="autoup"> Agendar upload</label>
           </div>
 
@@ -519,7 +520,7 @@
             </label>
             <label class="row" style="justify-content:space-between">
               <span class="muted">Cortes por vídeo</span>
-              <input id="cfg-count" type="number" min="1" max="40" style="width:80px">
+              <input id="cfg-count" type="number" min="1" max="100" style="width:80px">
             </label>
             <label class="row" style="justify-content:space-between">
               <span class="muted">Score viral mínimo</span>
@@ -553,11 +554,24 @@
           </div>
           <div id="cfg-yt-st" class="muted" style="font-size:12px;margin-top:6px"></div>
           <div class="row opts" style="margin-top:10px">
-            <label>Máx/dia <input id="cfg-maxday" type="number" min="1" max="30" style="width:70px"></label>
+            <label>Máx/dia <input id="cfg-maxday" type="number" min="1" max="100" style="width:70px"></label>
             <label>Fuso <input id="cfg-tz" style="width:165px" placeholder="America/Sao_Paulo"></label>
           </div>
           <div class="lbl" style="margin-top:8px">Horários (separados por vírgula)</div>
           <input id="cfg-slots" style="width:100%;margin-top:6px" placeholder="07:30, 11:00, 13:00, 16:00, 18:30, 20:00">
+          <div class="lbl" style="margin-top:10px">Cookies de download (vídeos +18 / login no yt-dlp)</div>
+          <div class="row" style="margin-top:6px">
+            <label class="file-btn small">🍪 Enviar cookies.txt<input type="file" id="cfg-yt-cookies" accept=".txt,text/plain" hidden></label>
+            <select id="cfg-cookies-browser" style="width:165px">
+              <option value="">Navegador: desativado</option>
+              <option value="chrome">Chrome</option>
+              <option value="firefox">Firefox</option>
+              <option value="safari">Safari</option>
+              <option value="brave">Brave</option>
+              <option value="edge">Edge</option>
+            </select>
+          </div>
+          <div id="cfg-cookies-st" class="muted" style="font-size:12px;margin-top:6px"></div>
         </div>
       </div>
     </div>

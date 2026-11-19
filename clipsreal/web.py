@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db, media, metadata, monitor, pipeline, render, youtube
-from .config import BROLL_DIR, CFG, DATA, UPLOADS_DIR, gemini_key, reload, save_config, set_env_var, youtube_client_secret
+from .config import (BROLL_DIR, CFG, DATA, UPLOADS_DIR, gemini_key, reload, save_config, set_env_var,
+                     youtube_client_secret, youtube_cookies_browser, youtube_cookies_file)
 from .llm import get_llm
 
 log = logging.getLogger("clipsreal.web")
@@ -97,6 +98,7 @@ def status():
         "ffmpeg": ff, "subtitles": render.subtitles_supported() if ff else False,
         "gemini": bool(gemini_key()), "gemini_model": (get_llm().model if gemini_key() else None),
         "youtube_auth": youtube.is_authenticated(), "client_secret": youtube_client_secret().exists(),
+        "youtube_cookies": youtube_cookies_file().is_file(), "cookies_from_browser": youtube_cookies_browser(),
         "monitor": monitor.running(), "queues": pipeline.queue_sizes(),
         "workspace": CFG["workspace"], "channel": CFG["channel"], "render": CFG["render"], "clips": CFG["clips"],
         "render_mode": CFG["render"]["mode"], "target_count": CFG["clips"]["target_count"],
@@ -122,6 +124,7 @@ class JobIn(BaseModel):
     cam_position: str | None = None
     dopamine_video: str | None = None
     captions: bool | None = None
+    censor_18plus: bool | None = None
 
 
 @app.post("/api/jobs")
@@ -136,7 +139,8 @@ async def upload_file(file: UploadFile = File(...), count: int | None = None, mo
                       watermark: bool | None = None, watermark_text: str | None = None,
                       hook_title: bool | None = None, hook_style: str | None = None,
                       hook_position: str | None = None, cam_position: str | None = None,
-                      dopamine_video: str | None = None, captions: bool | None = None):
+                      dopamine_video: str | None = None, captions: bool | None = None,
+                      censor_18plus: bool | None = None):
     safe = "".join(ch for ch in (file.filename or "video.mp4") if ch.isalnum() or ch in "._- ") or "video.mp4"
     fd, tmp = tempfile.mkstemp(dir=UPLOADS_DIR, suffix=".part")
     with os.fdopen(fd, "wb") as f:
@@ -150,7 +154,8 @@ async def upload_file(file: UploadFile = File(...), count: int | None = None, mo
     raw_opts = {"count": count, "mode": mode or None, "min_score": min_score, "language": language or None,
                 "auto_upload": auto_upload, "watermark": watermark, "watermark_text": watermark_text,
                 "hook_title": hook_title, "hook_style": hook_style or None, "hook_position": hook_position or None,
-                "cam_position": cam_position or None, "dopamine_video": dopamine_video, "captions": captions}
+                "cam_position": cam_position or None, "dopamine_video": dopamine_video, "captions": captions,
+                "censor_18plus": censor_18plus}
     opts = {k: v for k, v in raw_opts.items() if v is not None}
     return {"id": pipeline.enqueue_job(str(dest), opts)}
 
@@ -333,6 +338,30 @@ async def yt_secret(file: UploadFile = File(...)):
     return {"ok": True, "path": str(dest)}
 
 
+@app.post("/api/youtube/cookies")
+async def yt_cookies(file: UploadFile = File(...)):
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as e:
+        raise HTTPException(400, f"O arquivo precisa ser texto UTF-8 (Netscape cookies.txt): {e}")
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    if not any("\t" in ln and len(ln.split("\t")) >= 7 for ln in lines):
+        raise HTTPException(400, "Arquivo não parece um cookies.txt no formato Netscape (exportado do navegador).")
+    dest = youtube_cookies_file()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(raw)
+    return {"ok": True, "path": str(dest)}
+
+
+@app.delete("/api/youtube/cookies")
+def yt_cookies_delete():
+    p = youtube_cookies_file()
+    if p.is_file():
+        p.unlink()
+    return {"ok": True}
+
+
 @app.post("/api/gemini/test")
 def gemini_test():
     if not gemini_key():
@@ -352,9 +381,11 @@ def get_config():
     return {
         "gemini_set": bool(k), "gemini_masked": masked,
         "client_secret": youtube_client_secret().exists(),
+        "youtube_cookies": youtube_cookies_file().is_file(),
+        "cookies_from_browser": youtube_cookies_browser(),
         "workspace": CFG["workspace"], "channel": CFG["channel"], "clips": CFG["clips"],
         "render": CFG["render"], "llm": CFG["llm"], "transcription": CFG["transcription"],
-        "upload": CFG["upload"], "monitor": CFG["monitor"],
+        "upload": CFG["upload"], "monitor": CFG["monitor"], "ingest": CFG["ingest"],
     }
 
 
@@ -368,6 +399,7 @@ class ConfigIn(BaseModel):
     transcription: dict | None = None
     upload: dict | None = None
     monitor: dict | None = None
+    ingest: dict | None = None
 
 
 @app.post("/api/config")
@@ -380,7 +412,7 @@ def update_config(c: ConfigIn):
         trans["language"] = None if raw_lang in ("", "auto", "none") else raw_lang
     updates = {k: v for k, v in {"workspace": c.workspace, "channel": c.channel, "clips": c.clips,
                                  "render": c.render, "llm": c.llm, "transcription": trans,
-                                 "upload": c.upload, "monitor": c.monitor}.items()
+                                 "upload": c.upload, "monitor": c.monitor, "ingest": c.ingest}.items()
                if v is not None}
     if updates:
         save_config(updates)

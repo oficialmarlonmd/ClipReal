@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from . import media, reframe
+from . import censor, media, reframe
 
 log = logging.getLogger("clipsreal.render")
 _SUBS_OK: bool | None = None
@@ -22,7 +22,7 @@ def _even(x: float) -> int:
 
 
 def build_video_filter(info: dict, rcfg: dict, mode: str, video: Path, start: float, end: float,
-                       scenes: list[float], has_broll: bool = False) -> str:
+                       scenes: list[float], has_broll: bool = False, in_label: str = "[0:v]") -> str:
     W, H = rcfg["width"], rcfg["height"]
     sw, sh = info["width"] or 1920, info["height"] or 1080
     portrait = sh >= sw
@@ -31,7 +31,7 @@ def build_video_filter(info: dict, rcfg: dict, mode: str, video: Path, start: fl
         h_bot = H - h_top
         cw, ch, cx, cy = reframe.detect_facecam_box(video, start, end, sw, sh,
                                                     rcfg.get("cam_position", "auto"), W / h_top)
-        return (f"[0:v]split=2[cam_in][game_in];"
+        return (f"{in_label}split=2[cam_in][game_in];"
                 f"[cam_in]crop={cw}:{ch}:{cx}:{cy},scale={W}:{h_top}:force_original_aspect_ratio=increase,"
                 f"crop={W}:{h_top},setsar=1[top];"
                 f"[game_in]scale={W}:{h_bot}:force_original_aspect_ratio=increase,crop={W}:{h_bot},setsar=1[bot];"
@@ -40,14 +40,14 @@ def build_video_filter(info: dict, rcfg: dict, mode: str, video: Path, start: fl
         if has_broll:
             h_top = _even(H * 0.5)
             h_bot = H - h_top
-            return (f"[0:v]scale={W}:{h_top}:force_original_aspect_ratio=increase,crop={W}:{h_top},setsar=1[top];"
+            return (f"{in_label}scale={W}:{h_top}:force_original_aspect_ratio=increase,crop={W}:{h_top},setsar=1[top];"
                     f"[1:v]scale={W}:{h_bot}:force_original_aspect_ratio=increase,crop={W}:{h_bot},setsar=1[bot];"
                     f"[top][bot]vstack=inputs=2,setsar=1")
         h_top = _even(H * 0.395)
         h_bot = H - h_top
         cw, ch, cx, cy = reframe.detect_facecam_box(video, start, end, sw, sh,
                                                     rcfg.get("cam_position", "auto"), W / h_top)
-        return (f"[0:v]split=2[cam_in][game_in];"
+        return (f"{in_label}split=2[cam_in][game_in];"
                 f"[cam_in]crop={cw}:{ch}:{cx}:{cy},scale={W}:{h_top}:force_original_aspect_ratio=increase,"
                 f"crop={W}:{h_top},setsar=1[top];"
                 f"[game_in]scale={W}:{h_bot}:force_original_aspect_ratio=increase,crop={W}:{h_bot},setsar=1[bot];"
@@ -56,28 +56,28 @@ def build_video_filter(info: dict, rcfg: dict, mode: str, video: Path, start: fl
         card_w = _even(W * 0.94)
         card_h = _even(card_w * sh / max(sw, 1))
         bw, bh = W // 8, H // 8
-        return (f"[0:v]split=2[bg][fg];"
+        return (f"{in_label}split=2[bg][fg];"
                 f"[bg]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=16:2,"
                 f"scale={W}:{H},eq=brightness=-0.35:saturation=0.8[bgb];"
                 f"[fg]scale={card_w}:{card_h}:force_original_aspect_ratio=decrease,"
                 f"pad={card_w + 8}:{card_h + 8}:4:4:#26233a[fgs];"
                 f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1")
     if portrait:
-        return f"[0:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1"
+        return f"{in_label}scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1"
     if mode == "crop":
-        return f"[0:v]scale=-2:{H},crop={W}:{H},setsar=1"
+        return f"{in_label}scale=-2:{H},crop={W}:{H},setsar=1"
     if mode == "face":
         shots = reframe.face_track_x(video, start, end, scenes, sw, sh, H, W)
-        return f"[0:v]scale=-2:{H},crop={W}:{H}:x='{reframe.crop_x_expr(shots)}':y=0,setsar=1"
+        return f"{in_label}scale=-2:{H},crop={W}:{H}:x='{reframe.crop_x_expr(shots)}':y=0,setsar=1"
     if mode == "fit":
-        return f"[0:v]scale={W}:-2,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+        return f"{in_label}scale={W}:-2,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
     # blur (janela inteira no formato em pé + fundo desfocado)
     zoom = float(rcfg.get("fg_zoom", 1.0))
     fgw = _even(W * zoom)
     fgh = _even(fgw * sh / sw)
     cw = min(fgw, W)
     bw, bh = W // 4, H // 4
-    return (f"[0:v]split=2[bg][fg];"
+    return (f"{in_label}split=2[bg][fg];"
             f"[bg]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=12:2,"
             f"scale={W}:{H},eq=brightness=-0.07:saturation=1.25[bgb];"
             f"[fg]scale={fgw}:{fgh},crop={cw}:{fgh}[fgs];"
@@ -86,12 +86,18 @@ def build_video_filter(info: dict, rcfg: dict, mode: str, video: Path, start: fl
 
 def render_short(video: Path, start: float, end: float, out_dir: Path, info: dict, cfg: dict,
                  scenes: list[float], ass_name: str | None = "captions.ass", out_name: str = "clip.mp4",
-                 broll_video: Path | None = None) -> Path:
+                 broll_video: Path | None = None, censor_boxes: list[dict] | None = None) -> Path:
     rcfg = cfg["render"]
     out_dir.mkdir(parents=True, exist_ok=True)
     dur = round(end - start, 3)
     has_broll = bool(broll_video and Path(broll_video).is_file() and rcfg["mode"] == "dual_dopamine")
-    vf = build_video_filter(info, rcfg, rcfg["mode"], video, start, end, scenes, has_broll=has_broll)
+    sw, sh = info["width"] or 1920, info["height"] or 1080
+    cens_prefix, in_lbl = censor.build_censor_filter(
+        censor_boxes or [], sw, sh, style=rcfg.get("censor_style", "pixelate")
+    )
+    vf = cens_prefix + build_video_filter(
+        info, rcfg, rcfg["mode"], video, start, end, scenes, has_broll=has_broll, in_label=in_lbl
+    )
     if ass_name and (out_dir / ass_name).exists() and subtitles_supported():
         vf += f",subtitles={ass_name}"
     elif ass_name:
@@ -126,10 +132,18 @@ def render_compilation(parts: list[dict], out_dir: Path, cfg: dict) -> tuple[Pat
         args = ["-ss", f"{p['start']:.3f}", "-t", f"{dur:.3f}", "-i", str(p["video"])]
         if not p.get("has_audio"):
             args += ["-f", "lavfi", "-t", f"{dur:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
-        args += ["-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
-                        "setsar=1,fps=30,format=yuv420p",
-                 "-map", "0:v:0", "-map", "0:a:0" if p.get("has_audio") else "1:a:0",
-                 "-c:v", "libx264", "-preset", rcfg["preset"], "-crf", "20"]
+        cens_prefix, in_lbl = censor.build_censor_filter(
+            p.get("censor_boxes") or [], p.get("width") or 1920, p.get("height") or 1080,
+            style=rcfg.get("censor_style", "pixelate"),
+        )
+        base_vf = ("scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+                   "setsar=1,fps=30,format=yuv420p")
+        if cens_prefix:
+            args += ["-filter_complex", f"{cens_prefix}{in_lbl}{base_vf}[vc_out]", "-map", "[vc_out]",
+                     "-map", "0:a:0" if p.get("has_audio") else "1:a:0"]
+        else:
+            args += ["-vf", base_vf, "-map", "0:v:0", "-map", "0:a:0" if p.get("has_audio") else "1:a:0"]
+        args += ["-c:v", "libx264", "-preset", rcfg["preset"], "-crf", "20"]
         if p.get("has_audio") and rcfg.get("loudnorm", True):
             args += ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
         args += ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",

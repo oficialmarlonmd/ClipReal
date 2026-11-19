@@ -9,7 +9,7 @@ import threading
 import traceback
 from pathlib import Path
 
-from . import captions, db, highlights, ingest, lang as lang_utils, media, metadata, render, thumbnail, transcribe, youtube
+from . import captions, censor, db, highlights, ingest, lang as lang_utils, media, metadata, render, thumbnail, transcribe, youtube
 from .config import BROLL_DIR, CFG, JOBS_DIR
 
 log = logging.getLogger("clipsreal.pipeline")
@@ -61,7 +61,7 @@ def job_cfg(options: dict | None) -> dict:
               "watermark_position"):
         if o.get(k):
             cfg["render"][k] = str(o[k]).strip()
-    for k in ("captions", "hook_title", "watermark"):
+    for k in ("captions", "hook_title", "watermark", "censor_18plus"):
         if k in o:
             cfg["render"][k] = bool(o[k])
     if "watermark_text" in o and o["watermark_text"] is not None:
@@ -140,7 +140,8 @@ def process_job(job_id: int) -> None:
         if sig_path.exists():
             signals = json.loads(sig_path.read_text(encoding="utf-8"))
         else:
-            signals = {"hop": 0.5, "energy": energy, "scenes": media.scene_changes(video), "duration": duration}
+            signals = {"hop": 0.5, "energy": energy, "scenes": media.scene_changes(video, duration=duration),
+                       "duration": duration}
             sig_path.write_text(json.dumps(signals), encoding="utf-8")
 
         # --- resolve idioma do trabalho antes dos prompts e SEO
@@ -238,10 +239,23 @@ def render_clip(clip_id: int, cfg: dict | None = None, transcript=None, signals=
     rc = cfg["render"]
     broll = _resolve_broll(rc.get("dopamine_video"))
     has_broll = bool(broll and rc.get("mode") == "dual_dopamine")
+    censor_boxes: list[dict] = []
+    if rc.get("censor_18plus", True):
+        cpath = out_dir / "censor.json"
+        if cpath.exists():
+            try:
+                censor_boxes = json.loads(cpath.read_text(encoding="utf-8"))
+            except Exception:
+                censor_boxes = []
+        else:
+            censor_boxes = censor.detect_sensitive_regions(video, s, e, info.get("width") or 1920,
+                                                           info.get("height") or 1080)
+            cpath.write_text(json.dumps(censor_boxes, ensure_ascii=False), encoding="utf-8")
     captions.build_ass(words, out_dir / "captions.ass", rc, dur, hook=clip.get("hook") or "",
                        watermark=cfg["channel"].get("watermark_text", ""), width=rc["width"], height=rc["height"],
                        has_broll=has_broll)
-    out = render.render_short(video, s, e, out_dir, info, cfg, signals.get("scenes", []), broll_video=broll)
+    out = render.render_short(video, s, e, out_dir, info, cfg, signals.get("scenes", []), broll_video=broll,
+                              censor_boxes=censor_boxes)
 
     frame = media.extract_frame(video, s + min(3.0, dur / 2), out_dir / "frame.jpg")
     thumb = thumbnail.make_thumbnail(frame, thumb_text or clip.get("hook") or "GTA 6", out_dir / "thumb.jpg",
@@ -335,8 +349,17 @@ def process_compilation(job_id: int) -> None:
             if not src or not src.get("video_path"):
                 continue
             info = media.probe(src["video_path"])
+            cboxes = []
+            cfile = Path(c["file_path"]).parent / "censor.json" if c.get("file_path") else None
+            if cfg["render"].get("censor_18plus", True) and cfile and cfile.is_file():
+                try:
+                    cboxes = json.loads(cfile.read_text(encoding="utf-8"))
+                except Exception:
+                    cboxes = []
             parts.append({"video": src["video_path"], "start": c["start"], "end": c["end"],
-                          "title": (c.get("hook") or c.get("title") or "")[:60], "has_audio": info["has_audio"]})
+                          "title": (c.get("hook") or c.get("title") or "")[:60], "has_audio": info["has_audio"],
+                          "width": info.get("width") or 1920, "height": info.get("height") or 1080,
+                          "censor_boxes": cboxes})
         if not parts:
             raise RuntimeError("Vídeos de origem dos cortes não encontrados")
         out, chapters = render.render_compilation(parts, work, cfg)

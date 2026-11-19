@@ -14,13 +14,13 @@ llm:
   model: auto
   use_video_analysis: true
   max_video_minutes_for_upload: 50
-  transcript_chunk_minutes: 30
+  transcript_chunk_minutes: 10
 transcription:
   enabled: true
   model: small
   device: cpu
   compute_type: int8
-  language: null
+  language: en
 clips:
   target_count: 15
   min_seconds: 15
@@ -46,6 +46,8 @@ render:
   words_per_group: 3
   hook_font: Arial Black
   hook_size: 66
+  censor_18plus: true
+  censor_style: pixelate
 upload:
   privacy: public
   category_id: '20'
@@ -60,7 +62,7 @@ upload:
   - '20:00'
   - '21:30'
   - '23:00'
-  max_per_day: 6
+  max_per_day: 40
 monitor:
   interval_minutes: 30
   auto_upload: false
@@ -99,4 +101,4 @@ trend_keywords:
 - grassrivers
 - keys
 workspace:
-  plan: Pro
+  plan: Starter

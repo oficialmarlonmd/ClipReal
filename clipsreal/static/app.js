@@ -97,6 +97,7 @@ function applyDefaultsToMainBar(s) {
   if ($("#minscore") && s.clips?.min_score !== undefined) $("#minscore").value = s.clips.min_score;
   if ($("#opt-hook")) $("#opt-hook").checked = s.render?.hook_title !== false;
   if ($("#opt-caps")) $("#opt-caps").checked = s.render?.captions !== false;
+  if ($("#opt-censor")) $("#opt-censor").checked = s.render?.censor_18plus !== false;
   if ($("#opt-wm")) $("#opt-wm").checked = s.render?.watermark !== false;
   if ($("#opt-wm-text")) $("#opt-wm-text").value = s.channel?.watermark_text ?? "";
   if ($("#opt-cam-pos") && s.render?.cam_position) $("#opt-cam-pos").value = s.render.cam_position;
@@ -500,6 +501,7 @@ async function submitJob() {
       cam_position: $("#opt-cam-pos").value,
       dopamine_video: $("#opt-broll").value,
       captions: $("#opt-caps").checked,
+      censor_18plus: $("#opt-censor")?.checked !== false,
     };
     const r = await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
     $("#source").value = "";
@@ -536,6 +538,7 @@ $("#file").onchange = () => {
     cam_position: $("#opt-cam-pos").value,
     dopamine_video: $("#opt-broll").value,
     captions: $("#opt-caps").checked,
+    censor_18plus: $("#opt-censor")?.checked !== false,
   });
   const xhr = new XMLHttpRequest();
   $("#upbar").classList.remove("hidden");
@@ -861,7 +864,7 @@ async function loadCalendar() {
       ${c.youtube_url ? `<a class="yt" href="${c.youtube_url}" target="_blank" rel="noopener">▶ Abrir</a>` : `<span class="tag">${esc(c.status)}</span>`}
     </div>`).join("") || `<div class="muted">Nenhum vídeo agendado ou publicado ainda.</div>`;
 
-  $("#cal-ready").innerHTML = (d.ready || []).slice(0, 20).map((c) => `
+  $("#cal-ready").innerHTML = (d.ready || []).slice(0, 60).map((c) => `
     <div class="sched-row">
       <div style="min-width:0">
         <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title || c.hook)}</div>
@@ -1035,6 +1038,10 @@ async function openConfig(tab = "ai") {
   $("#cfg-handle").value = c.channel?.handle || "@BabyDragonOFC";
   $("#cfg-cta").value = c.channel?.cta || "";
   $("#cfg-yt-st").textContent = c.client_secret ? "client_secret.json encontrado ✓" : "client_secret.json ainda não enviado.";
+  $("#cfg-cookies-browser").value = c.ingest?.cookies_from_browser || c.cookies_from_browser || "";
+  $("#cfg-cookies-st").textContent = c.youtube_cookies
+    ? "cookies.txt salvo ✓ (usado para vídeos +18)"
+    : (c.cookies_from_browser ? `Lendo cookies do navegador: ${c.cookies_from_browser}` : "Nenhum cookie configurado (opcional — necessário p/ vídeos +18).");
   $("#cfg-maxday").value = c.upload?.max_per_day || 6;
   $("#cfg-tz").value = c.upload?.timezone || "America/Sao_Paulo";
   $("#cfg-slots").value = (c.upload?.slots || []).join(", ");
@@ -1067,7 +1074,10 @@ $("#cfg-save").onclick = async () => {
         handle: $("#cfg-handle").value.trim() || "@BabyDragonOFC",
         cta: $("#cfg-cta").value.trim(),
       },
-      clips: { target_count: +$("#cfg-count").value || 10, min_score: +$("#cfg-minscore").value || 50 },
+      clips: {
+        target_count: +$("#cfg-count").value || 10,
+        min_score: $("#cfg-minscore").value === "" ? 50 : +$("#cfg-minscore").value,
+      },
       llm: { use_video_analysis: $("#cfg-use-video").checked },
       transcription: { language: lang === "auto" ? null : lang },
       upload: {
@@ -1076,6 +1086,7 @@ $("#cfg-save").onclick = async () => {
         ...(slots.length ? { slots } : {}),
       },
       monitor: { auto_upload: $("#cfg-mon-auto").checked, sources },
+      ingest: { cookies_from_browser: $("#cfg-cookies-browser").value },
     }),
   });
   cfgInit = false;
@@ -1104,6 +1115,18 @@ $("#cfg-secret").onchange = async () => {
   const r = await fetch("/api/youtube/secret", { method: "POST", body: fd });
   if (!r.ok) { const j = await r.json().catch(() => ({})); return toast("Erro: " + (j.detail || r.statusText), "err"); }
   $("#cfg-yt-st").textContent = "client_secret.json salvo ✓ Agora clique em Conectar canal.";
+  loadStatus();
+};
+
+$("#cfg-yt-cookies").onchange = async () => {
+  const f = $("#cfg-yt-cookies").files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("file", f);
+  const r = await fetch("/api/youtube/cookies", { method: "POST", body: fd });
+  if (!r.ok) { const j = await r.json().catch(() => ({})); return toast("Erro: " + (j.detail || r.statusText), "err"); }
+  $("#cfg-cookies-st").textContent = "cookies.txt salvo ✓ Agora você pode clicar em Tentar novamente no job.";
+  toast("cookies.txt salvo ✓", "ok");
   loadStatus();
 };
 

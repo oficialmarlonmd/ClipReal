@@ -35,7 +35,7 @@ DEFAULTS: dict = {
         "cta": "Inscreva-se para mais cortes de GTA 6!", "watermark_text": "@BabyDragonOFC",
     },
     "llm": {"provider": "gemini", "model": "auto", "use_video_analysis": True,
-            "max_video_minutes_for_upload": 50, "transcript_chunk_minutes": 30},
+            "max_video_minutes_for_upload": 50, "transcript_chunk_minutes": 10},
     "transcription": {"enabled": True, "model": "small", "device": "cpu",
                       "compute_type": "int8", "language": None},
     "clips": {"target_count": 10, "min_seconds": 15, "max_seconds": 58, "min_score": 50},
@@ -47,12 +47,14 @@ DEFAULTS: dict = {
                "watermark_opacity": 65, "watermark_size": 38, "caption_font": "Arial Black",
                "caption_size": 82, "caption_color": "&H00FFFFFF",
                "highlight_color": "&H0000E5FF", "caption_margin_v": 470,
-               "words_per_group": 3, "hook_font": "Arial Black", "hook_size": 66},
+               "words_per_group": 3, "hook_font": "Arial Black", "hook_size": 66,
+               "censor_18plus": True, "censor_style": "pixelate"},
     "upload": {"privacy": "public", "category_id": "20", "made_for_kids": False,
                "timezone": "America/Sao_Paulo",
                "slots": ["07:30", "11:00", "13:00", "16:00", "18:30", "20:00", "21:30", "23:00"],
                "max_per_day": 6},
     "monitor": {"interval_minutes": 30, "auto_upload": False, "sources": []},
+    "ingest": {"cookies_from_browser": ""},
     "trend_keywords": ["gta 6", "gta vi", "vice city", "lucia", "jason"],
 }
 
@@ -97,6 +99,24 @@ def youtube_client_secret() -> Path:
     p = os.getenv("YOUTUBE_CLIENT_SECRET", "credentials/client_secret.json")
     path = Path(p)
     return path if path.is_absolute() else ROOT / path
+
+
+def youtube_cookies_file() -> Path:
+    """Caminho do arquivo Netscape cookies.txt para yt-dlp (vídeos +18 / login)."""
+    env_p = (os.getenv("YT_DLP_COOKIES") or "").strip()
+    if env_p:
+        p = Path(env_p)
+        return p if p.is_absolute() else ROOT / p
+    default = CRED_DIR / "youtube_cookies.txt"
+    if not default.exists() and (ROOT / "cookies.txt").is_file():
+        return ROOT / "cookies.txt"
+    return default
+
+
+def youtube_cookies_browser() -> str:
+    """Navegador configurado para leitura de cookies pelo yt-dlp (ex.: safari, chrome, firefox)."""
+    return ((os.getenv("YT_DLP_COOKIES_FROM_BROWSER") or "").strip()
+            or str((CFG.get("ingest") or {}).get("cookies_from_browser") or "").strip())
 
 
 def set_env_var(key: str, value: str) -> None:

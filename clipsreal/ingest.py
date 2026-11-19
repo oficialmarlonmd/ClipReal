@@ -7,10 +7,31 @@ from pathlib import Path
 from typing import Callable
 
 from . import media
+from .config import youtube_cookies_browser, youtube_cookies_file
 
 
 def is_url(s: str) -> bool:
     return s.strip().lower().startswith(("http://", "https://"))
+
+
+def _parse_browser(spec: str) -> tuple[str, ...] | None:
+    raw = (spec or "").strip()
+    if not raw:
+        return None
+    if ":" in raw:
+        name, prof = raw.split(":", 1)
+        return (name.strip().lower(), prof.strip())
+    return (raw.lower(),)
+
+
+def _cookie_opts() -> dict:
+    cfile = youtube_cookies_file()
+    if cfile.is_file() and cfile.stat().st_size > 0:
+        return {"cookiefile": str(cfile)}
+    browser = _parse_browser(youtube_cookies_browser())
+    if browser:
+        return {"cookiesfrombrowser": browser}
+    return {}
 
 
 def ingest(source: str, dest_dir: Path, progress: Callable[[float, str], None] | None = None) -> dict:
@@ -32,6 +53,7 @@ def ingest(source: str, dest_dir: Path, progress: Callable[[float, str], None] |
             if total:
                 progress(min(d.get("downloaded_bytes", 0) / total, 1.0), "Baixando vídeo")
 
+    cookie_opts = _cookie_opts()
     opts = {
         "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
         "merge_output_format": "mp4",
@@ -43,9 +65,38 @@ def ingest(source: str, dest_dir: Path, progress: Callable[[float, str], None] |
         "progress_hooks": [hook],
         "retries": 5,
         "concurrent_fragment_downloads": 4,
+        **cookie_opts,
     }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(source.strip(), download=True)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(source.strip(), download=True)
+    except PermissionError as e:
+        raise RuntimeError(
+            "Sem permissão no macOS para ler os cookies do navegador. "
+            "Exporte um arquivo cookies.txt da sua conta logada no YouTube e envie em "
+            "⚙ Configurar → Canal & YouTube (ou conceda Acesso Total ao Disco ao Terminal)."
+        ) from e
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        low = msg.lower()
+        if any(x in low for x in ("operation not permitted", "permission denied", "could not copy", "cookies")):
+            if "binarycookies" in low or "safari" in low:
+                raise RuntimeError(
+                    "O macOS bloqueou a leitura dos cookies do Safari (Falta Acesso Total ao Disco). "
+                    "Mais fácil: exporte um cookies.txt do YouTube e suba em ⚙ Configurar → Canal & YouTube."
+                ) from e
+        if any(x in low for x in ("confirm your age", "not a bot", "sign in", "login required", "age-restricted")):
+            if cookie_opts:
+                raise RuntimeError(
+                    "O YouTube ainda pediu verificação/idade com os cookies atuais. "
+                    "Gere um novo cookies.txt logado em uma conta +18 no YouTube e suba em ⚙ Configurar → Canal & YouTube."
+                ) from e
+            raise RuntimeError(
+                "Este vídeo do YouTube exige login/confirmação de idade (+18). "
+                "Exporte seus cookies do YouTube em cookies.txt e suba em ⚙ Configurar → Canal & YouTube "
+                "(ou configure YT_DLP_COOKIES_FROM_BROWSER no .env)."
+            ) from e
+        raise
     path = None
     for f in dest_dir.glob("source.*"):
         if f.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov"):
