@@ -7,6 +7,8 @@ import threading
 from pathlib import Path
 from typing import Callable
 
+from .lang import normalize_lang
+
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 _model = None
@@ -27,6 +29,32 @@ def _get_model(cfg: dict):
     return _model
 
 
+def _load_audio(wav: Path):
+    """Decodifica WAV 16kHz mono 16-bit direto via stdlib/numpy para evitar falhas do PyAV."""
+    import wave
+    import numpy as np
+
+    try:
+        with wave.open(str(wav), "rb") as wf:
+            if wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == 16000:
+                raw = wf.readframes(wf.getnframes())
+                return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    except wave.Error:
+        pass
+    return str(wav)
+
+
+def detected_language(cache: Path) -> str | None:
+    meta = cache.with_name("transcript_meta.json")
+    if meta.exists():
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+            return normalize_lang(data.get("language"))
+        except Exception:
+            return None
+    return None
+
+
 def transcribe(wav: Path, cfg: dict, cache: Path, duration: float,
                progress: Callable[[float, str], None] | None = None) -> list[dict]:
     if cache.exists():
@@ -36,7 +64,9 @@ def transcribe(wav: Path, cfg: dict, cache: Path, duration: float,
         return []
     progress(0.0, "Carregando modelo Whisper")
     model = _get_model(cfg)
-    segments, info = model.transcribe(str(wav), language=cfg.get("language") or None, word_timestamps=True,
+    audio = _load_audio(wav)
+    lang = normalize_lang(cfg.get("language"))
+    segments, info = model.transcribe(audio, language=lang, word_timestamps=True,
                                       vad_filter=True, beam_size=1,
                                       vad_parameters={"min_silence_duration_ms": 500})
     out = []
@@ -47,6 +77,12 @@ def transcribe(wav: Path, cfg: dict, cache: Path, duration: float,
         out.append({"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip(), "words": words})
         progress(min(s.end / total, 1.0), "Transcrevendo")
     cache.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+    det_lang = normalize_lang(getattr(info, "language", None)) or lang
+    if det_lang:
+        cache.with_name("transcript_meta.json").write_text(
+            json.dumps({"language": det_lang, "probability": getattr(info, "language_probability", None)}),
+            encoding="utf-8",
+        )
     return out
 
 

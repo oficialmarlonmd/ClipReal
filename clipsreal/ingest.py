@@ -36,7 +36,7 @@ def ingest(source: str, dest_dir: Path, progress: Callable[[float, str], None] |
         "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
         "merge_output_format": "mp4",
         "outtmpl": str(dest_dir / "source.%(ext)s"),
-        "ffmpeg_location": media.ffmpeg_dir(),
+        "ffmpeg_location": media.ffmpeg_bin(),
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,

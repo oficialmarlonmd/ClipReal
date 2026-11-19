@@ -96,7 +96,7 @@ class GeminiLLM:
                         temperature=temperature,
                         response_mime_type="application/json",
                         http_options=types.HttpOptions(
-                            timeout=120000 if files else 15000,
+                            timeout=120000 if files else 60000,
                             retry_options=types.HttpRetryOptions(attempts=1),
                         ),
                     ),

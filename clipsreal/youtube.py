@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from . import lang as lang_utils
 from .config import DATA, youtube_client_secret
 
 log = logging.getLogger("clipsreal.youtube")
@@ -72,10 +73,11 @@ def upload(video: Path, title: str, description: str, tags: list[str], cfg: dict
     status = {"privacyStatus": ucfg["privacy"], "selfDeclaredMadeForKids": bool(ucfg["made_for_kids"])}
     if publish_at:
         status.update({"privacyStatus": "private", "publishAt": publish_at})
+    yt_lang = "en" if lang_utils.is_english(cfg.get("resolved_language") or cfg["channel"].get("language")) else "pt-BR"
     body = {
         "snippet": {"title": title[:100], "description": description[:5000], "tags": tags,
-                    "categoryId": str(ucfg["category_id"]), "defaultLanguage": "pt-BR",
-                    "defaultAudioLanguage": "pt-BR"},
+                    "categoryId": str(ucfg["category_id"]), "defaultLanguage": yt_lang,
+                    "defaultAudioLanguage": yt_lang},
         "status": status,
     }
     media = MediaFileUpload(str(video), mimetype="video/mp4", chunksize=8 * 1024 * 1024, resumable=True)

@@ -11,15 +11,21 @@ log = logging.getLogger("clipsreal.reframe")
 YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
 
 
+_yunet_tried = False
+
+
 def _get_detector():
+    global _yunet_tried
     import cv2
     from .config import ROOT
 
     yunet = ROOT / "models" / "face_detection_yunet_2023mar.onnx"
-    if not yunet.exists() and hasattr(cv2, "FaceDetectorYN"):
+    if not yunet.exists() and not _yunet_tried and hasattr(cv2, "FaceDetectorYN"):
+        _yunet_tried = True
         try:
             yunet.parent.mkdir(parents=True, exist_ok=True)
-            urllib.request.urlretrieve(YUNET_URL, yunet)
+            with urllib.request.urlopen(YUNET_URL, timeout=10) as resp:
+                yunet.write_bytes(resp.read())
         except Exception as e:  # noqa: BLE001
             log.warning("Download YuNet falhou: %s", e)
     if yunet.exists() and hasattr(cv2, "FaceDetectorYN"):
@@ -102,3 +108,75 @@ def crop_x_expr(shots: list[tuple[float, float, int]]) -> str:
     for t0, t1, x in reversed(shots[:-1]):
         expr = f"if(lt(t\\,{t1})\\,{x}\\,{expr})"
     return expr
+
+
+def _even_box(cw: int, ch: int, cx: int, cy: int, sw: int, sh: int) -> tuple[int, int, int, int]:
+    cw = max(64, min(sw, cw) // 2 * 2)
+    ch = max(64, min(sh, ch) // 2 * 2)
+    cx = max(0, min(sw - cw, cx)) // 2 * 2
+    cy = max(0, min(sh - ch, cy)) // 2 * 2
+    return cw, ch, cx, cy
+
+
+def detect_facecam_box(video: Path, start: float, end: float, sw: int, sh: int,
+                       cam_pos: str = "auto", target_aspect: float = 1.5) -> tuple[int, int, int, int]:
+    """Detecta ou posiciona a janela de facecam (w, h, x, y) para layouts Dual / Dual Dopamine."""
+    pos = (cam_pos or "auto").strip().lower()
+    if pos in ("top-left", "top-right", "mid-left", "mid-right", "bottom-left", "bottom-right"):
+        bh = int(sh * 0.34)
+        bw = int(bh * target_aspect)
+        if bw > sw:
+            bw = sw
+            bh = int(bw / target_aspect)
+        mx, my = int(sw * 0.02), int(sh * 0.03)
+        cx = mx if pos.endswith("left") else (sw - bw - mx)
+        if pos.startswith("top"):
+            cy = my
+        elif pos.startswith("mid"):
+            cy = (sh - bh) // 2
+        else:
+            cy = sh - bh - my
+        return _even_box(bw, bh, cx, cy, sw, sh)
+
+    import cv2
+
+    detect = _get_detector()
+    samples: list[tuple[float, float, float, float]] = []
+    if detect is not None:
+        cap = cv2.VideoCapture(str(video))
+        span = max(end - start, 0.5)
+        for frac in (0.12, 0.3, 0.5, 0.7, 0.88):
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(start + span * frac) * 1000)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            scale_w = 640
+            small_h = max(1, int(scale_w * frame.shape[0] / max(frame.shape[1], 1)))
+            small = cv2.resize(frame, (scale_w, small_h))
+            faces = detect(small)
+            if not faces:
+                continue
+            # Prefere rostos consistentes de facecam ou o rosto dominante
+            rx = frame.shape[1] / scale_w
+            ry = frame.shape[0] / small_h
+            for x, y, w, h in faces:
+                samples.append(((x + w / 2) * rx, (y + h / 2) * ry, w * rx, h * ry))
+        cap.release()
+
+    if samples:
+        fx = float(np.median([s[0] for s in samples]))
+        fy = float(np.median([s[1] for s in samples]))
+        fh = float(np.median([s[3] for s in samples]))
+        bh = int(np.clip(fh * 2.9, sh * 0.24, sh * 0.65))
+        bw = int(bh * target_aspect)
+        if bw > sw:
+            bw = sw
+            bh = int(bw / target_aspect)
+        cx = int(fx - bw / 2)
+        cy = int(fy - bh * 0.42)
+        return _even_box(bw, bh, cx, cy, sw, sh)
+
+    # Sem rosto detectado: recorte superior-central limpo
+    bh = int(sh * 0.58)
+    bw = min(sw, int(bh * target_aspect))
+    return _even_box(bw, bh, (sw - bw) // 2, int(sh * 0.05), sw, sh)

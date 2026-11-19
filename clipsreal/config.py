@@ -15,12 +15,20 @@ load_dotenv(ROOT / ".env")
 DATA = Path(os.getenv("CLIPSREAL_DATA") or (ROOT / "data")).resolve()
 JOBS_DIR = DATA / "jobs"
 UPLOADS_DIR = DATA / "uploads"
+BROLL_DIR = DATA / "broll"
 CRED_DIR = ROOT / "credentials"
 
-for d in (DATA, JOBS_DIR, UPLOADS_DIR, CRED_DIR):
-    d.mkdir(parents=True, exist_ok=True)
+for d in (DATA, JOBS_DIR, UPLOADS_DIR, BROLL_DIR, CRED_DIR):
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 
 DEFAULTS: dict = {
+    "workspace": {
+        "plan": "Pro", "owner_name": "Criador GTA 6", "brand_tagline": "GTA 6 Studio",
+        "license_key": "", "onboarding_dismissed": False,
+    },
     "channel": {
         "name": "GTA VI", "handle": "@BabyDragonOFC", "language": "pt-BR",
         "niche": "GTA 6", "default_hashtags": ["#GTA6", "#GTAVI", "#Shorts"],
@@ -33,7 +41,10 @@ DEFAULTS: dict = {
     "clips": {"target_count": 10, "min_seconds": 15, "max_seconds": 58, "min_score": 50},
     "render": {"mode": "blur", "fg_zoom": 1.15, "width": 1080, "height": 1920, "fps": 30,
                "crf": 21, "preset": "veryfast", "loudnorm": True, "captions": True,
-               "hook_title": True, "watermark": True, "caption_font": "Arial Black",
+               "hook_title": True, "hook_style": "white", "hook_position": "auto",
+               "cam_position": "auto", "dopamine_video": "",
+               "watermark": True, "watermark_position": "bottom-center",
+               "watermark_opacity": 65, "watermark_size": 38, "caption_font": "Arial Black",
                "caption_size": 82, "caption_color": "&H00FFFFFF",
                "highlight_color": "&H0000E5FF", "caption_margin_v": 470,
                "words_per_group": 3, "hook_font": "Arial Black", "hook_size": 66},

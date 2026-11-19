@@ -34,10 +34,57 @@ def group_words(words: list[dict], max_words: int = 3, max_gap: float = 0.6) -> 
     return groups
 
 
+_WM_ALIGN = {
+    "bottom-left": 1,
+    "bottom-center": 2,
+    "bottom-right": 3,
+    "top-left": 7,
+    "top-center": 8,
+    "top-right": 9,
+}
+
+
+_HOOK_STYLES = {
+    # (PrimaryColour text, OutlineColour box fill, BackColour shadow)
+    "white": ("&H00000000", "&H00FFFFFF", "&H64000000"),
+    "red":   ("&H00FFFFFF", "&H001A1AD8", "&H80000000"),
+    "black": ("&H00FFFFFF", "&H00000000", "&H80000000"),
+}
+
+
+def _hook_layout(rcfg: dict, height: int, has_broll: bool = False) -> tuple[int, int]:
+    mode = (rcfg.get("mode") or "blur").strip().lower()
+    pos = (rcfg.get("hook_position") or "auto").strip().lower()
+    if pos == "auto":
+        pos = "middle" if mode in ("dual", "dual_dopamine") else "top"
+    if pos == "middle":
+        if mode == "dual":
+            return 8, int(height * 0.345)
+        if mode == "dual_dopamine":
+            return 8, int(height * (0.465 if has_broll else 0.365))
+        return 5, 0
+    if mode == "card":
+        return 8, int(height * 0.14)
+    return 8, int(height * 0.11)
+
+
 def build_ass(words: list[dict], out: Path, rcfg: dict, duration: float, hook: str = "",
-              watermark: str = "", width: int = 1080, height: int = 1920) -> Path:
+              watermark: str = "", width: int = 1080, height: int = 1920,
+              has_broll: bool = False) -> Path:
     font, size = rcfg["caption_font"], rcfg["caption_size"]
     hl = _inline_color(rcfg["highlight_color"])
+    wm_pos = (rcfg.get("watermark_position") or "bottom-center").strip().lower()
+    wm_align = _WM_ALIGN.get(wm_pos, 2)
+    wm_margin_v = int(height * (0.045 if wm_align >= 7 else 0.055))
+    wm_size = max(18, min(80, int(rcfg.get("watermark_size", 38) or 38)))
+    wm_opacity = max(10, min(100, int(rcfg.get("watermark_opacity", 65) or 65)))
+    wm_alpha = int(round((100 - wm_opacity) / 100 * 255))
+    wm_out_alpha = min(255, int(wm_alpha + (255 - wm_alpha) * 0.45))
+    h_txt, h_box, h_back = _HOOK_STYLES.get((rcfg.get("hook_style") or "white").lower(), _HOOK_STYLES["white"])
+    h_align, h_margin_v = _hook_layout(rcfg, height, has_broll=has_broll)
+    cap_margin_v = int(rcfg.get("caption_margin_v", 470))
+    if (rcfg.get("mode") or "") in ("dual", "dual_dopamine", "card"):
+        cap_margin_v = min(cap_margin_v, int(height * 0.14))
     lines = [
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}",
         "WrapStyle: 0", "ScaledBorderAndShadow: yes", "",
@@ -46,18 +93,18 @@ def build_ass(words: list[dict], out: Path, rcfg: dict, duration: float, hook: s
         "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, "
         "MarginR, MarginV, Encoding",
         f"Style: Caption,{font},{size},{rcfg['caption_color']},&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,"
-        f"1,7,3,2,60,60,{rcfg['caption_margin_v']},1",
-        f"Style: Hook,{rcfg['hook_font']},{rcfg['hook_size']},&H00000000,&H000000FF,&H00FFFFFF,&H64000000,-1,0,0,0,"
-        f"100,100,0,0,3,18,0,8,70,70,{int(height * 0.12)},1",
-        f"Style: Mark,Arial,38,&H60FFFFFF,&H000000FF,&H80000000,&H00000000,-1,0,0,0,100,100,1,0,1,2,0,2,40,40,"
-        f"{int(height * 0.055)},1",
+        f"1,7,3,2,60,60,{cap_margin_v},1",
+        f"Style: Hook,{rcfg['hook_font']},{rcfg['hook_size']},{h_txt},&H000000FF,{h_box},{h_back},-1,0,0,0,"
+        f"100,100,0,0,3,18,0,{h_align},70,70,{h_margin_v},1",
+        f"Style: Mark,Arial,{wm_size},&H{wm_alpha:02X}FFFFFF,&H000000FF,&H{wm_out_alpha:02X}000000,&H00000000,-1,0,0,0,"
+        f"100,100,1,0,1,2,0,{wm_align},48,48,{wm_margin_v},1",
         "", "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
     end_all = ts(duration)
     if hook and rcfg.get("hook_title", True):
         wrapped = "\\N".join(textwrap.wrap(_esc(hook.upper()), width=20)[:3])
-        lines.append(f"Dialogue: 2,{ts(0)},{end_all},Hook,,0,0,0,,{{\\fad(150,0)}}{wrapped}")
+        lines.append(f"Dialogue: 2,{ts(0)},{end_all},Hook,,0,0,0,,{wrapped}")
     if watermark and rcfg.get("watermark", True):
         lines.append(f"Dialogue: 1,{ts(0)},{end_all},Mark,,0,0,0,,{_esc(watermark)}")
 

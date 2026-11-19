@@ -3,111 +3,579 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ClipsReal — Clipagem GTA 6</title>
+  <title>ClipsReal — GTA 6 Viral Studio</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header>
-  <div class="brand"><span class="logo">▶</span> Clips<b>Real</b> <small>GTA 6 edition</small></div>
-  <div class="head-right">
-    <div id="pills" class="pills"></div>
-    <button id="open-cfg" class="small">⚙ Configurar</button>
-  </div>
-</header>
-
-<main>
-  <section class="card new-job">
-    <h2>Novo corte automático</h2>
-    <div class="row">
-      <input id="source" placeholder="Cole o link (YouTube, Twitch, Kick, Drive...) ou caminho do arquivo C:\...\video.mp4">
-      <label class="file-btn">📁 Arquivo<input type="file" id="file" accept="video/*" hidden></label>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo">▶</span>
+      <div class="brand-meta">
+        <span class="brand-txt">Clips<b>Real</b></span>
+        <small id="side-tagline">GTA 6 Studio <span class="plan-chip" id="side-plan">PRO</span></small>
+      </div>
     </div>
-    <div class="row opts">
-      <label>Cortes <input type="number" id="count" min="1" max="40" value="10"></label>
-      <label>Formato
-        <select id="mode">
-          <option value="blur">Blur (gameplay centralizado)</option>
-          <option value="crop">Crop central</option>
-          <option value="face">Rastrear rosto (facecam/podcast)</option>
-          <option value="fit">Encaixar com barras</option>
-        </select>
-      </label>
-      <label>Score mínimo <input type="number" id="minscore" min="0" max="100" value="50"></label>
-      <label class="chk"><input type="checkbox" id="autoup"> Agendar upload automático</label>
-      <button id="go" class="primary">⚡ Gerar cortes</button>
-    </div>
-    <div id="upbar" class="progress hidden"><div></div></div>
-  </section>
 
-  <div class="layout">
-    <aside class="card">
-      <h2>Trabalhos</h2>
-      <div id="jobs"></div>
-    </aside>
-    <section class="card clips-panel">
-      <div class="clips-head">
-        <h2 id="jobtitle">Selecione um trabalho</h2>
-        <div class="actions">
-          <button id="selall">Selecionar todos</button>
-          <button id="compile" class="accent">🎬 Gerar vídeo longo (selecionados)</button>
-          <button id="upsel" class="primary">⬆ Agendar selecionados</button>
+    <nav class="nav" aria-label="Navegação principal">
+      <button class="nav-item active" data-view="studio"><span>⚡</span> Studio &amp; Cortes</button>
+      <button class="nav-item" data-view="brand"><span>🎨</span> Brand Kit &amp; Marca</button>
+      <button class="nav-item" data-view="library"><span>📚</span> Biblioteca &amp; Dopamina</button>
+      <button class="nav-item" data-view="calendar"><span>📅</span> Calendário &amp; Fila</button>
+      <button class="nav-item" data-view="analytics"><span>📈</span> Analytics</button>
+      <button class="nav-item" data-view="billing"><span>💎</span> Planos &amp; Conta</button>
+    </nav>
+
+    <div class="side-foot">
+      <div class="side-card">
+        <div class="side-card-row">
+          <span class="muted">Workspace</span>
+          <strong id="side-handle">@BabyDragonOFC</strong>
+        </div>
+        <div class="side-card-row" style="margin-top:6px">
+          <span class="muted">Setup</span>
+          <strong id="side-setup-pct">0/5</strong>
+        </div>
+        <div class="progress" style="margin-top:6px"><div id="side-setup-bar"></div></div>
+        <div class="row" style="margin-top:10px;gap:6px">
+          <button id="open-cfg" class="small" style="flex:1">⚙ Chaves &amp; API</button>
         </div>
       </div>
-      <div id="jobinfo" class="muted"></div>
-      <div id="clips" class="grid"></div>
-    </section>
-  </div>
-</main>
+    </div>
+  </aside>
 
+  <div class="workspace">
+    <header class="topbar">
+      <div class="top-title">
+        <h1 id="view-title">Studio de Cortes</h1>
+        <span id="view-sub" class="muted">Transforme lives, VODs e gameplays em Shorts virais</span>
+      </div>
+      <div class="head-right">
+        <div id="pills" class="pills"></div>
+      </div>
+    </header>
+
+    <main>
+      <!-- ==================== VIEW: STUDIO ==================== -->
+      <section class="view active" id="view-studio">
+        <section class="card new-job">
+          <div class="card-head">
+            <h2>Novo corte automático</h2>
+            <span id="file-picked" class="muted" style="font-size:12px"></span>
+          </div>
+          <div class="row">
+            <input id="source" placeholder="Cole o link (YouTube, Twitch, Kick, Drive...) ou caminho local C:\...\video.mp4">
+            <label class="file-btn">📁 Arquivo<input type="file" id="file" accept="video/*" hidden></label>
+            <button id="go" class="primary">⚡ Gerar cortes</button>
+          </div>
+
+          <div class="fmt-section">
+            <div class="lbl" style="margin-bottom:8px">
+              <span>Formato visual do vídeo (9:16)</span>
+              <span class="muted" id="fmt-active-desc">Janela inteira em pé com fundo desfocado</span>
+            </div>
+            <div class="fmt-grid" id="fmt-grid">
+              <button type="button" class="fmt-card active" data-mode="blur">
+                <div class="fmt-thumb fmt-t-blur"><i></i></div>
+                <b>Janela Blur</b>
+                <small>Janela inteira + fundo blur</small>
+              </button>
+              <button type="button" class="fmt-card" data-mode="dual">
+                <div class="fmt-thumb fmt-t-dual"><span class="top">CAM</span><span class="bot">GAME</span></div>
+                <b>Dual Stream</b>
+                <small>Facecam topo + Gameplay</small>
+              </button>
+              <button type="button" class="fmt-card" data-mode="dual_dopamine">
+                <div class="fmt-thumb fmt-t-dopamine"><span class="top">A</span><em class="mid">GANCHO</em><span class="bot">B</span></div>
+                <b>Dual Dopamine</b>
+                <small>Split + Banner / 2 vídeos</small>
+              </button>
+              <button type="button" class="fmt-card" data-mode="card">
+                <div class="fmt-thumb fmt-t-card"><i>@</i></div>
+                <b>Social Card</b>
+                <small>Feed / Post 16:9 em card</small>
+              </button>
+              <button type="button" class="fmt-card" data-mode="face">
+                <div class="fmt-thumb fmt-t-face"><i>☺</i></div>
+                <b>Rastrear Rosto</b>
+                <small>Tela cheia seguindo rosto</small>
+              </button>
+              <button type="button" class="fmt-card" data-mode="crop">
+                <div class="fmt-thumb fmt-t-crop"><i>9:16</i></div>
+                <b>Crop Central</b>
+                <small>Zoom vertical tela cheia</small>
+              </button>
+              <button type="button" class="fmt-card" data-mode="fit">
+                <div class="fmt-thumb fmt-t-fit"><i>16:9</i></div>
+                <b>Cinema Fit</b>
+                <small>Vídeo inteiro + barras</small>
+              </button>
+            </div>
+          </div>
+
+          <div class="row opts dual-opts hidden" id="dual-opts-row">
+            <label>Posição da Facecam
+              <select id="opt-cam-pos">
+                <option value="auto">Auto (IA detecta rosto)</option>
+                <option value="top-left">Topo Esquerda</option>
+                <option value="top-right">Topo Direita</option>
+                <option value="mid-left">Meio Esquerda</option>
+                <option value="mid-right">Meio Direita</option>
+                <option value="bottom-left">Base Esquerda</option>
+                <option value="bottom-right">Base Direita</option>
+              </select>
+            </label>
+            <label id="dopamine-broll-wrap" class="hidden">Vídeo Dopamina (B-Roll)
+              <select id="opt-broll">
+                <option value="">Auto (Cam + Gameplay + Banner)</option>
+              </select>
+            </label>
+            <button type="button" class="small" id="go-broll-lib">+ Gerenciar B-Roll</button>
+            <label>Estilo do Gancho
+              <select id="opt-hook-style">
+                <option value="white">Caixa Branca</option>
+                <option value="red">Banner Vermelho Viral</option>
+                <option value="black">Faixa Preta</option>
+              </select>
+            </label>
+            <label>Posição do Gancho
+              <select id="opt-hook-pos">
+                <option value="auto">Auto (ideal do formato)</option>
+                <option value="middle">Centro / Divisor</option>
+                <option value="top">Topo</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row opts">
+            <label>Cortes <input type="number" id="count" min="1" max="40" value="10"></label>
+            <label>Idioma
+              <select id="lang">
+                <option value="auto">Auto (PT / EN)</option>
+                <option value="pt">Português</option>
+                <option value="en">Inglês</option>
+              </select>
+            </label>
+            <label>Score mínimo <input type="number" id="minscore" min="0" max="100" value="50"></label>
+            <label class="chk"><input type="checkbox" id="opt-hook" checked> Gancho na tela</label>
+            <label class="chk"><input type="checkbox" id="opt-caps" checked> Legendas</label>
+            <label class="chk"><input type="checkbox" id="autoup"> Agendar upload</label>
+          </div>
+
+          <div class="wm-bar">
+            <label class="chk wm-toggle"><input type="checkbox" id="opt-wm" checked> Marca d'água no vídeo</label>
+            <input id="opt-wm-text" placeholder="Texto da marca d'água (ex.: @BabyDragonOFC)" maxlength="60">
+            <button id="save-wm-quick" class="small" type="button">💾 Salvar padrão</button>
+            <button id="open-wm-studio" class="small" type="button">🎨 Brand Kit completo…</button>
+            <span id="wm-quick-hint" class="muted"></span>
+          </div>
+
+          <div id="upbar" class="progress hidden"><div></div></div>
+          <div id="upbar-txt" class="muted hidden" style="font-size:12px;margin-top:4px"></div>
+        </section>
+
+        <div class="studio-split">
+          <aside class="card jobs-box">
+            <div class="card-head">
+              <h2>Trabalhos</h2>
+              <span id="jobs-count" class="tag">0</span>
+            </div>
+            <div id="jobs"></div>
+          </aside>
+
+          <section class="card clips-panel">
+            <div class="clips-head">
+              <div>
+                <h2 id="jobtitle" style="margin-bottom:4px">Selecione um trabalho</h2>
+                <div id="jobinfo" class="muted"></div>
+              </div>
+              <div class="actions">
+                <select id="clip-filter" class="small-sel" title="Filtrar cortes">
+                  <option value="all">Todos</option>
+                  <option value="selected">Selecionados</option>
+                  <option value="rendered">Prontos</option>
+                  <option value="published">Publicados / Agendados</option>
+                </select>
+                <select id="clip-sort" class="small-sel" title="Ordenar cortes">
+                  <option value="score">Score ↓</option>
+                  <option value="time">Ordem no vídeo</option>
+                </select>
+                <button id="selall" class="small">Selecionar todos</button>
+                <button id="rerendersel" class="small" disabled>🎞 Re-renderizar (0)</button>
+                <button id="compile" class="small accent" disabled>🎬 Vídeo longo (0)</button>
+                <button id="upsel" class="small primary" disabled>⬆ Agendar (0)</button>
+              </div>
+            </div>
+            <div id="clips" class="grid"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ==================== VIEW: BRAND KIT ==================== -->
+      <section class="view" id="view-brand">
+        <div class="card">
+          <div class="clips-head" style="margin-bottom:16px">
+            <div>
+              <h2>Brand Kit &amp; Visual dos Cortes</h2>
+              <div class="muted" style="font-size:13px">Configure sua marca d'água, estilo de gancho e legendas — salve como padrão para todos os vídeos.</div>
+            </div>
+            <div class="actions">
+              <button id="bk-save-rerender" class="accent" type="button" style="display:none">💾 Salvar e Re-renderizar trabalho atual</button>
+              <button id="bk-save" class="primary" type="button">💾 Salvar Brand Kit</button>
+            </div>
+          </div>
+
+          <div class="wm-studio">
+            <div class="col-gap">
+              <div class="cfg-box">
+                <h3>1. Marca d'água no vídeo</h3>
+                <label class="chk" style="margin-bottom:10px">
+                  <input type="checkbox" id="bk-wm-enabled"> Exibir marca d'água nos vídeos renderizados
+                </label>
+                <div class="lbl">Texto da marca d'água</div>
+                <div class="row" style="margin-top:4px">
+                  <input id="bk-wm-text" placeholder="@SeuCanal ou texto personalizado" style="flex:1">
+                  <button id="bk-wm-use-handle" class="small" type="button">Usar @handle</button>
+                </div>
+                <div class="lbl" style="margin-top:12px">Posição na tela</div>
+                <div id="bk-wm-pos-grid" class="pos-grid">
+                  <button type="button" class="pos-btn" data-pos="top-left">↖ Topo Esq.</button>
+                  <button type="button" class="pos-btn" data-pos="top-center">⬆ Topo Centro</button>
+                  <button type="button" class="pos-btn" data-pos="top-right">↗ Topo Dir.</button>
+                  <button type="button" class="pos-btn" data-pos="bottom-left">↙ Rodapé Esq.</button>
+                  <button type="button" class="pos-btn" data-pos="bottom-center">⬇ Rodapé Centro</button>
+                  <button type="button" class="pos-btn" data-pos="bottom-right">↘ Rodapé Dir.</button>
+                </div>
+                <div class="cfg-grid" style="margin-top:10px">
+                  <div class="slider-row" style="margin-top:0">
+                    <label>Opacidade <strong id="bk-wm-op-val">65%</strong></label>
+                    <input type="range" id="bk-wm-opacity" min="10" max="100" step="5" value="65">
+                  </div>
+                  <div class="slider-row" style="margin-top:0">
+                    <label>Tamanho <strong id="bk-wm-sz-val">38 px</strong></label>
+                    <input type="range" id="bk-wm-size" min="20" max="64" step="2" value="38">
+                  </div>
+                </div>
+              </div>
+
+              <div class="cfg-box">
+                <h3>2. Faixa de Gancho &amp; Legendas</h3>
+                <div class="cfg-grid">
+                  <div class="col-gap">
+                    <label class="chk"><input type="checkbox" id="bk-hook"> Exibir gancho no vídeo</label>
+                    <label class="row" style="justify-content:space-between">
+                      <span class="muted">Estilo do banner</span>
+                      <select id="bk-hook-style">
+                        <option value="white">Caixa Branca</option>
+                        <option value="red">Banner Vermelho Viral</option>
+                        <option value="black">Faixa Preta</option>
+                      </select>
+                    </label>
+                    <label class="row" style="justify-content:space-between">
+                      <span class="muted">Posição do banner</span>
+                      <select id="bk-hook-pos">
+                        <option value="auto">Auto (por formato)</option>
+                        <option value="middle">Divisor Central</option>
+                        <option value="top">Topo</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="col-gap">
+                    <label class="chk"><input type="checkbox" id="bk-caps"> Legendas dinâmicas karaokê</label>
+                    <label class="row" style="justify-content:space-between">
+                      <span class="muted">Palavras por bloco</span>
+                      <select id="bk-words">
+                        <option value="2">2 palavras</option>
+                        <option value="3">3 palavras</option>
+                        <option value="4">4 palavras</option>
+                      </select>
+                    </label>
+                    <label class="row" style="justify-content:space-between">
+                      <span class="muted">Cor de destaque</span>
+                      <select id="bk-hl-color">
+                        <option value="&H0000E5FF">Amarelo Ouro</option>
+                        <option value="&H00FFE600">Ciano Elétrico</option>
+                        <option value="&H0088FF2E">Verde Neon</option>
+                        <option value="&H00882EFF">Rosa Viral</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="cfg-box">
+                <h3>3. Formato Padrão &amp; Facecam</h3>
+                <div class="cfg-grid">
+                  <label class="row" style="justify-content:space-between">
+                    <span class="muted">Formato padrão</span>
+                    <select id="bk-mode">
+                      <option value="blur">Janela Blur</option>
+                      <option value="dual">Dual Stream (Cam + Game)</option>
+                      <option value="dual_dopamine">Dual Dopamine</option>
+                      <option value="card">Social Card</option>
+                      <option value="face">Rastrear Rosto</option>
+                      <option value="crop">Crop Central</option>
+                      <option value="fit">Cinema Fit</option>
+                    </select>
+                  </label>
+                  <label class="row" style="justify-content:space-between">
+                    <span class="muted">Facecam padrão</span>
+                    <select id="bk-cam-pos">
+                      <option value="auto">Auto (IA)</option>
+                      <option value="top-left">Topo Esq.</option>
+                      <option value="top-right">Topo Dir.</option>
+                      <option value="mid-left">Meio Esq.</option>
+                      <option value="mid-right">Meio Dir.</option>
+                      <option value="bottom-left">Base Esq.</option>
+                      <option value="bottom-right">Base Dir.</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="wm-preview-wrap">
+              <div class="lbl" style="margin-bottom:6px">Simulador Ao Vivo 9:16</div>
+              <div class="phone-preview" id="bk-preview">
+                <div class="prev-top-pane">FACECAM / CLIP A</div>
+                <div class="prev-mid-pane">GAMEPLAY 16:9</div>
+                <div class="prev-bot-pane">GAMEPLAY / DOPAMINE</div>
+                <div class="prev-hook" id="bk-prev-hook">LUCIA HAS A BABY IN GTA 6?!</div>
+                <div class="prev-caps" id="bk-prev-caps">WAIT, <span>LUCY</span> YOU GOT?!</div>
+                <div class="prev-wm" id="bk-prev-wm">@BabyDragonOFC</div>
+              </div>
+              <div class="row" style="margin-top:8px;justify-content:center;gap:4px">
+                <button type="button" class="small bk-sim-mode" data-sim="blur">Blur</button>
+                <button type="button" class="small bk-sim-mode" data-sim="dual">Dual</button>
+                <button type="button" class="small bk-sim-mode" data-sim="dual_dopamine">Dopamina</button>
+                <button type="button" class="small bk-sim-mode" data-sim="card">Card</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== VIEW: LIBRARY & DOPAMINE B-ROLL ==================== -->
+      <section class="view" id="view-library">
+        <div class="card">
+          <div class="clips-head" style="margin-bottom:14px">
+            <h2>Biblioteca de Mídia &amp; Vídeos Dopamina</h2>
+            <div class="tabs" style="margin:0;border:0;padding:0">
+              <button class="tab lib-tab active" data-ltab="clips">✂️ Todos os Cortes</button>
+              <button class="tab lib-tab" data-ltab="broll">🔥 Vídeos Dopamina (B-Roll)</button>
+            </div>
+          </div>
+
+          <div class="lib-panel active" id="lib-clips-panel">
+            <div class="row" style="margin-bottom:12px">
+              <input id="lib-search" placeholder="Buscar por título, gancho ou trabalho..." style="flex:1;min-width:220px">
+              <select id="lib-status">
+                <option value="all">Todos os status</option>
+                <option value="rendered">Prontos</option>
+                <option value="scheduled">Agendados</option>
+                <option value="uploaded">Publicados</option>
+              </select>
+              <button id="lib-refresh" class="small" type="button">🔄 Atualizar</button>
+            </div>
+            <div id="lib-grid" class="lib-grid"></div>
+          </div>
+
+          <div class="lib-panel" id="lib-broll-panel">
+            <div class="cfg-box" style="margin-bottom:14px">
+              <div class="clips-head">
+                <div>
+                  <h3>Biblioteca Dual Dopamine (Vídeos Secundários / B-Roll)</h3>
+                  <p class="muted" style="margin:0">Suba gameplays de parkour, rampas de GTA, ASMR ou reações para usar na parte inferior do formato Dual Dopamine.</p>
+                </div>
+                <label class="file-btn primary small">⬆ Enviar B-Roll (.mp4)<input type="file" id="broll-upload" accept="video/*" hidden></label>
+              </div>
+            </div>
+            <div id="broll-grid" class="lib-grid"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== VIEW: CALENDAR ==================== -->
+      <section class="view" id="view-calendar">
+        <div class="card">
+          <div class="clips-head" style="margin-bottom:14px">
+            <div>
+              <h2>Calendário de Publicações &amp; Agendamento</h2>
+              <div id="cal-sub" class="muted" style="font-size:13px">Controle automático de slots diários para YouTube Shorts</div>
+            </div>
+            <button id="cal-refresh" class="small" type="button">🔄 Atualizar agenda</button>
+          </div>
+          <div id="cal-slots" class="slots-strip"></div>
+          <div class="cfg-grid" style="margin-top:16px">
+            <div class="cfg-box">
+              <h3>🕒 Fila Agendada &amp; Publicados</h3>
+              <div id="cal-scheduled" class="col-gap"></div>
+            </div>
+            <div class="cfg-box">
+              <h3>✅ Prontos para Agendar</h3>
+              <div id="cal-ready" class="col-gap"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== VIEW: ANALYTICS ==================== -->
+      <section class="view" id="view-analytics">
+        <div class="kpi-grid" id="ana-kpis"></div>
+        <div class="cfg-grid" style="margin-top:16px">
+          <div class="cfg-box">
+            <h3>Distribuição por Viralidade</h3>
+            <div id="ana-tiers" class="col-gap"></div>
+            <h3 style="margin-top:16px">Formatos Utilizados</h3>
+            <div id="ana-modes" class="col-gap"></div>
+          </div>
+          <div class="cfg-box">
+            <h3>Checklist de Lançamento</h3>
+            <div id="ana-onboard" class="col-gap"></div>
+            <h3 style="margin-top:16px">Top Categorias</h3>
+            <div id="ana-cats" class="row" style="gap:6px"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2>🏆 Top Cortes por Score Viral</h2>
+          <div id="ana-top" class="lib-grid"></div>
+        </div>
+      </section>
+
+      <!-- ==================== VIEW: PLANS & ACCOUNT ==================== -->
+      <section class="view" id="view-billing">
+        <div class="cfg-grid">
+          <div class="card">
+            <h2>👤 Conta &amp; Workspace</h2>
+            <div class="col-gap">
+              <div class="lbl">Nome do criador / empresa</div>
+              <input id="acc-owner" placeholder="Seu nome">
+              <div class="lbl">Subtítulo do Studio</div>
+              <input id="acc-tagline" placeholder="GTA 6 Studio">
+              <div class="lbl">Nome do canal principal</div>
+              <input id="acc-ch-name" placeholder="GTA VI">
+              <div class="lbl">Handle (@)</div>
+              <input id="acc-handle" placeholder="@BabyDragonOFC">
+              <div class="lbl">Chave de Licença / Workspace</div>
+              <input id="acc-license" placeholder="CR-PRO-2026-XXXX (opcional)">
+              <div class="row" style="justify-content:flex-end;margin-top:6px">
+                <button id="acc-save" class="primary" type="button">💾 Salvar perfil</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>📊 Consumo do Workspace</h2>
+            <div id="bill-usage" class="col-gap"></div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h2>💎 Planos Comerciais ClipsReal</h2>
+          <p class="muted" style="margin-top:-6px">Estrutura pronta para licenciamento SaaS ou revenda de assinaturas.</p>
+          <div class="plans-grid" id="plans-grid"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ==================== QUICK CONFIG MODAL (API / YT / RSS) ==================== -->
 <div id="cfg-modal" class="modal hidden">
   <div class="modal-card card">
     <div class="clips-head">
-      <h2>⚙ Configuração rápida (para rodar hoje)</h2>
+      <h2>⚙ Chaves, YouTube &amp; Monitor</h2>
       <button id="close-cfg" class="small">✕</button>
     </div>
-    <div class="cfg-grid">
-      <div class="cfg-box">
-        <h3>1. Inteligência Artificial (Gemini)</h3>
-        <p class="muted">Chave grátis em <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>. Sem ela, o sistema usa modo heurístico.</p>
-        <div class="row">
-          <input id="cfg-gem" type="password" placeholder="Cole sua GEMINI_API_KEY aqui" style="flex:1">
-          <button id="cfg-test-gem" class="small">⚡ Testar IA</button>
-        </div>
-        <div id="cfg-gem-st" class="muted" style="font-size:12px;margin-top:6px"></div>
-      </div>
 
-      <div class="cfg-box">
-        <h3>2. YouTube Data API v3 (Upload & Agendamento)</h3>
-        <p class="muted">Suba o <code>client_secret.json</code> (App para computador / OAuth) e conecte o canal.</p>
-        <div class="row">
-          <label class="file-btn small">📄 Enviar client_secret.json<input type="file" id="cfg-secret" accept=".json,application/json" hidden></label>
-          <button id="cfg-yt-conn" class="small primary">🔗 Conectar canal</button>
-        </div>
-        <div id="cfg-yt-st" class="muted" style="font-size:12px;margin-top:6px"></div>
-      </div>
+    <div class="tabs" role="tablist">
+      <button class="tab m-tab active" data-mtab="ai">🤖 IA &amp; Idioma</button>
+      <button class="tab m-tab" data-mtab="yt">📺 Canal &amp; YouTube</button>
+      <button class="tab m-tab" data-mtab="mon">📡 Monitor RSS</button>
+    </div>
 
-      <div class="cfg-box">
-        <h3>3. Canal & Horários de Agendamento</h3>
-        <div class="row opts">
-          <label>Handle <input id="cfg-handle" style="width:140px"></label>
-          <label>Máx/dia <input id="cfg-maxday" type="number" min="1" max="30" style="width:65px"></label>
+    <div class="tab-panel m-panel active" data-mpanel="ai">
+      <div class="cfg-grid">
+        <div class="cfg-box">
+          <h3>Inteligência Artificial (Gemini)</h3>
+          <p class="muted">Chave grátis em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</p>
+          <div class="row">
+            <input id="cfg-gem" type="password" placeholder="Cole sua GEMINI_API_KEY aqui" style="flex:1">
+            <button id="cfg-test-gem" class="small" type="button">⚡ Testar IA</button>
+          </div>
+          <div id="cfg-gem-st" class="muted" style="font-size:12px;margin-top:6px"></div>
         </div>
-        <div class="lbl" style="margin-top:8px">Horários (separados por vírgula, fuso BRT)</div>
-        <input id="cfg-slots" style="width:100%;margin-top:6px" placeholder="07:30, 11:00, 13:00, 16:00, 18:30, 20:00">
-      </div>
 
-      <div class="cfg-box">
-        <h3>4. Monitor Automático de Fontes (RSS YouTube)</h3>
-        <p class="muted">1 canal por linha no formato <code>Nome | UCxxxxxxxx</code> (use apenas canais/VODs próprios ou autorizados).</p>
-        <textarea id="cfg-sources" rows="3" style="width:100%" placeholder="Meu Canal de Lives | UCxxxxxxxxxxxxxxxxxxxxxx"></textarea>
-        <div class="row" style="margin-top:8px">
-          <label class="chk"><input type="checkbox" id="cfg-mon-auto"> Agendar upload automático ao detectar novo vídeo</label>
-          <button id="cfg-mon-check" class="small">🔄 Checar fontes agora</button>
+        <div class="cfg-box">
+          <h3>Idioma &amp; Padrões de Corte</h3>
+          <div class="col-gap">
+            <label class="row" style="justify-content:space-between">
+              <span class="muted">Idioma padrão</span>
+              <select id="cfg-lang">
+                <option value="auto">Auto (PT / EN)</option>
+                <option value="pt">Português</option>
+                <option value="en">Inglês</option>
+              </select>
+            </label>
+            <label class="row" style="justify-content:space-between">
+              <span class="muted">Cortes por vídeo</span>
+              <input id="cfg-count" type="number" min="1" max="40" style="width:80px">
+            </label>
+            <label class="row" style="justify-content:space-between">
+              <span class="muted">Score viral mínimo</span>
+              <input id="cfg-minscore" type="number" min="0" max="100" style="width:80px">
+            </label>
+            <label class="chk"><input type="checkbox" id="cfg-use-video"> Enviar proxy leve para análise visual</label>
+          </div>
         </div>
       </div>
     </div>
-    <div class="row" style="justify-content:flex-end;margin-top:14px">
-      <button id="cfg-save" class="primary">💾 Salvar configurações</button>
+
+    <div class="tab-panel m-panel" data-mpanel="yt">
+      <div class="cfg-grid">
+        <div class="cfg-box">
+          <h3>Identidade do Canal</h3>
+          <div class="col-gap">
+            <div class="lbl">Nome do canal</div>
+            <input id="cfg-ch-name" placeholder="GTA VI">
+            <div class="lbl">Handle (@)</div>
+            <input id="cfg-handle" placeholder="@BabyDragonOFC">
+            <div class="lbl">CTA padrão</div>
+            <input id="cfg-cta" placeholder="Inscreva-se no canal para cortes de GTA 6 todos os dias!">
+          </div>
+        </div>
+        <div class="cfg-box">
+          <h3>YouTube Data API v3 &amp; Slots</h3>
+          <p class="muted">Suba o <code>client_secret.json</code> (OAuth Desktop) e conecte.</p>
+          <div class="row">
+            <label class="file-btn small">📄 Enviar client_secret.json<input type="file" id="cfg-secret" accept=".json,application/json" hidden></label>
+            <button id="cfg-yt-conn" class="small primary" type="button">🔗 Conectar canal</button>
+          </div>
+          <div id="cfg-yt-st" class="muted" style="font-size:12px;margin-top:6px"></div>
+          <div class="row opts" style="margin-top:10px">
+            <label>Máx/dia <input id="cfg-maxday" type="number" min="1" max="30" style="width:70px"></label>
+            <label>Fuso <input id="cfg-tz" style="width:165px" placeholder="America/Sao_Paulo"></label>
+          </div>
+          <div class="lbl" style="margin-top:8px">Horários (separados por vírgula)</div>
+          <input id="cfg-slots" style="width:100%;margin-top:6px" placeholder="07:30, 11:00, 13:00, 16:00, 18:30, 20:00">
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel m-panel" data-mpanel="mon">
+      <div class="cfg-box">
+        <h3>Monitor Automático RSS</h3>
+        <p class="muted">1 canal por linha no formato <code>Nome | UCxxxxxxxx</code>.</p>
+        <textarea id="cfg-sources" rows="4" style="width:100%" placeholder="Meu Canal | UCxxxxxxxxxxxxxxxxxxxxxx"></textarea>
+        <div class="row" style="margin-top:10px;justify-content:space-between">
+          <label class="chk"><input type="checkbox" id="cfg-mon-auto"> Agendar upload automático</label>
+          <button id="cfg-mon-check" class="small" type="button">🔄 Checar fontes agora</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row modal-foot">
+      <button id="cfg-save" class="primary" type="button">💾 Salvar configurações</button>
     </div>
   </div>
 </div>

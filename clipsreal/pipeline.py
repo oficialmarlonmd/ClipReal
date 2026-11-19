@@ -9,8 +9,8 @@ import threading
 import traceback
 from pathlib import Path
 
-from . import captions, db, highlights, ingest, media, metadata, render, thumbnail, transcribe, youtube
-from .config import CFG, JOBS_DIR
+from . import captions, db, highlights, ingest, lang as lang_utils, media, metadata, render, thumbnail, transcribe, youtube
+from .config import BROLL_DIR, CFG, JOBS_DIR
 
 log = logging.getLogger("clipsreal.pipeline")
 
@@ -57,14 +57,39 @@ def job_cfg(options: dict | None) -> dict:
         cfg["clips"]["target_count"] = int(o["count"])
     if o.get("min_score") is not None:
         cfg["clips"]["min_score"] = float(o["min_score"])
-    if o.get("mode"):
-        cfg["render"]["mode"] = o["mode"]
+    for k in ("mode", "hook_style", "hook_position", "cam_position", "dopamine_video",
+              "watermark_position"):
+        if o.get(k):
+            cfg["render"][k] = str(o[k]).strip()
     for k in ("captions", "hook_title", "watermark"):
         if k in o:
             cfg["render"][k] = bool(o[k])
+    if "watermark_text" in o and o["watermark_text"] is not None:
+        cfg["channel"]["watermark_text"] = str(o["watermark_text"]).strip()
+    if o.get("watermark_opacity") is not None:
+        cfg["render"]["watermark_opacity"] = int(o["watermark_opacity"])
+    if o.get("watermark_size") is not None:
+        cfg["render"]["watermark_size"] = int(o["watermark_size"])
     if "use_video" in o:
         cfg["llm"]["use_video_analysis"] = bool(o["use_video"])
+    if "language" in o:
+        norm = lang_utils.normalize_lang(o["language"])
+        cfg["transcription"]["language"] = norm
+        if norm:
+            cfg = lang_utils.apply_language_cfg(cfg, norm)
+    elif cfg["transcription"].get("language"):
+        norm = lang_utils.normalize_lang(cfg["transcription"].get("language"))
+        if norm:
+            cfg = lang_utils.apply_language_cfg(cfg, norm)
     return cfg
+
+
+def _resolve_job_cfg(cfg: dict, work: Path, transcript: list[dict] | None = None,
+                     title: str = "", clip_text: str = "") -> dict:
+    det = transcribe.detected_language(work / "transcript.json")
+    sample = clip_text or " ".join(s["text"] for s in (transcript or [])[:40])
+    resolved = lang_utils.effective_language(cfg, transcript_text=sample, title=title, detected=det)
+    return lang_utils.apply_language_cfg(cfg, resolved)
 
 
 def job_dir(job_id: int) -> Path:
@@ -118,6 +143,9 @@ def process_job(job_id: int) -> None:
             signals = {"hop": 0.5, "energy": energy, "scenes": media.scene_changes(video), "duration": duration}
             sig_path.write_text(json.dumps(signals), encoding="utf-8")
 
+        # --- resolve idioma do trabalho antes dos prompts e SEO
+        cfg = _resolve_job_cfg(cfg, work, transcript=transcript, title=ing["title"])
+
         # --- melhores momentos + score viral
         found, method = highlights.find_highlights(video, work, transcript, signals, cfg, duration, ing["title"],
                                                    stage(0.55, 0.15))
@@ -138,7 +166,7 @@ def process_job(job_id: int) -> None:
                                  reason=c.get("reason", ""), category=c.get("category", ""),
                                  transcript=c.get("transcript", ""), title=meta["title"],
                                  description=meta["description"], hashtags=meta["hashtags"], tags=meta["tags"],
-                                 status="pending")
+                                 render_mode=cfg["render"]["mode"], status="pending")
             clip_ids.append(cid)
             try:
                 render_clip(cid, cfg=cfg, transcript=transcript, signals=signals, info=info,
@@ -165,41 +193,72 @@ def _load_job_assets(job: dict):
     return transcript, signals
 
 
+def _resolve_broll(name: str | None) -> Path | None:
+    if not name:
+        return None
+    p = (BROLL_DIR / Path(str(name)).name).resolve()
+    if str(p).startswith(str(BROLL_DIR.resolve())) and p.is_file():
+        return p
+    # Caso não seja especificado, usa o primeiro b-roll cadastrado apenas se explicitamente escolhido
+    return None
+
+
 def render_clip(clip_id: int, cfg: dict | None = None, transcript=None, signals=None, info=None,
-                thumb_text: str | None = None) -> None:
+                thumb_text: str | None = None, use_saved_style: bool = False,
+                render_overrides: dict | None = None) -> None:
     clip = db.get_clip(clip_id)
     job = db.get_job(clip["job_id"])
-    cfg = cfg or job_cfg(job.get("options"))
+    work = job_dir(job["id"])
     if transcript is None or signals is None:
         transcript, signals = _load_job_assets(job)
+    if cfg is None:
+        opts = dict(job.get("options") or {})
+        if use_saved_style:
+            for k in ("watermark", "watermark_text", "watermark_position", "watermark_opacity",
+                      "watermark_size", "hook_title", "hook_style", "hook_position", "cam_position",
+                      "dopamine_video", "captions"):
+                opts.pop(k, None)
+        if clip.get("render_mode"):
+            opts["mode"] = clip["render_mode"]
+        if render_overrides:
+            for k, v in render_overrides.items():
+                if v is not None:
+                    opts[k] = v
+        cfg = _resolve_job_cfg(job_cfg(opts), work, transcript=transcript,
+                               title=job.get("title") or "", clip_text=clip.get("transcript") or "")
     video = Path(job["video_path"])
     info = info or media.probe(video)
-    out_dir = job_dir(job["id"]) / "clips" / f"clip_{clip['idx']:02d}"
+    out_dir = work / "clips" / f"clip_{clip['idx']:02d}"
     out_dir.mkdir(parents=True, exist_ok=True)
     s, e = float(clip["start"]), float(clip["end"])
     dur = e - s
-    db.update_clip(clip_id, status="rendering", error=None)
+    db.update_clip(clip_id, status="rendering", error=None, render_mode=cfg["render"]["mode"])
 
     words = transcribe.words_between(transcript, s, e)
     rc = cfg["render"]
+    broll = _resolve_broll(rc.get("dopamine_video"))
+    has_broll = bool(broll and rc.get("mode") == "dual_dopamine")
     captions.build_ass(words, out_dir / "captions.ass", rc, dur, hook=clip.get("hook") or "",
-                       watermark=cfg["channel"].get("watermark_text", ""), width=rc["width"], height=rc["height"])
-    out = render.render_short(video, s, e, out_dir, info, cfg, signals.get("scenes", []))
+                       watermark=cfg["channel"].get("watermark_text", ""), width=rc["width"], height=rc["height"],
+                       has_broll=has_broll)
+    out = render.render_short(video, s, e, out_dir, info, cfg, signals.get("scenes", []), broll_video=broll)
 
     frame = media.extract_frame(video, s + min(3.0, dur / 2), out_dir / "frame.jpg")
     thumb = thumbnail.make_thumbnail(frame, thumb_text or clip.get("hook") or "GTA 6", out_dir / "thumb.jpg",
                                      size=(1080, 1920))
     meta = {k: clip.get(k) for k in ("title", "description", "hashtags", "tags", "score", "score_label",
                                      "breakdown", "hook", "reason", "category", "start", "end")}
+    meta["render_mode"] = rc["mode"]
     (out_dir / "metadata.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     metadata.export_txt(meta, out_dir / "metadata.txt", clip.get("score"), clip.get("breakdown"))
-    db.update_clip(clip_id, file_path=str(out), thumb_path=str(thumb), status="rendered")
+    db.update_clip(clip_id, file_path=str(out), thumb_path=str(thumb), status="rendered", render_mode=rc["mode"])
 
 
 def regen_metadata(clip_id: int) -> dict:
     clip = db.get_clip(clip_id)
     job = db.get_job(clip["job_id"])
-    cfg = job_cfg(job.get("options"))
+    cfg = _resolve_job_cfg(job_cfg(job.get("options")), job_dir(job["id"]),
+                           title=job.get("title") or "", clip_text=clip.get("transcript") or clip.get("description") or "")
     if clip.get("kind") == "long":
         # Reconstrói capítulos a partir das linhas com timestamp na descrição atual ou dos clipes do job
         import re
@@ -208,7 +267,8 @@ def regen_metadata(clip_id: int) -> dict:
             h = int(m[1] or 0)
             sec = h * 3600 + int(m[2]) * 60 + int(m[3])
             chaps.append((float(sec), m[4].strip()))
-        meta = metadata.long_metadata(chaps or [(0.0, "Melhores Momentos GTA 6")], cfg)
+        default_chap = "Best GTA 6 Moments" if lang_utils.is_english(cfg.get("resolved_language")) else "Melhores Momentos GTA 6"
+        meta = metadata.long_metadata(chaps or [(0.0, default_chap)], cfg)
     else:
         meta = metadata.shorts_metadata([clip], cfg, job.get("title") or "")[0]
     db.update_clip(clip_id, title=meta["title"], description=meta["description"], hashtags=meta["hashtags"],
@@ -221,7 +281,8 @@ def regen_metadata(clip_id: int) -> dict:
 def upload_clip(clip_id: int, schedule: str | None = "auto") -> None:
     clip = db.get_clip(clip_id)
     job = db.get_job(clip["job_id"])
-    cfg = job_cfg(job.get("options"))
+    cfg = _resolve_job_cfg(job_cfg(job.get("options")), job_dir(job["id"]),
+                           title=job.get("title") or "", clip_text=clip.get("transcript") or clip.get("description") or "")
     if clip.get("youtube_id"):
         return
     try:
@@ -260,6 +321,11 @@ def process_compilation(job_id: int) -> None:
         clips = [c for c in (db.get_clip(i) for i in ids) if c and c.get("kind") != "long"]
         if not clips:
             raise RuntimeError("Nenhum corte curto válido selecionado para compilação")
+        sample_txt = " ".join(c.get("transcript") or "" for c in clips[:3])
+        sample_title = " ".join(c.get("title") or "" for c in clips[:3])
+        cfg = lang_utils.apply_language_cfg(
+            cfg, lang_utils.effective_language(cfg, transcript_text=sample_txt, title=sample_title)
+        )
         clips.sort(key=lambda c: c.get("score") or 0)       # crescente: melhor momento no final (retenção)
         if len(clips) >= 3:
             clips = [clips[-1]] + clips[:-1]                # ...mas abre com o melhor gancho
@@ -281,9 +347,10 @@ def process_compilation(job_id: int) -> None:
         src = db.get_job(best["job_id"])
         frame = media.extract_frame(src["video_path"], best["start"] + 2, work / "frame.jpg")
         thumb = thumbnail.make_thumbnail(frame, meta["thumb_text"], work / "thumb.jpg", size=(1280, 720))
+        comp_label = "Compilation" if lang_utils.is_english(cfg.get("resolved_language")) else "Compilação"
         cid = db.create_clip(job_id, kind="long", idx=1, start=0, end=total,
                              score=round(sum(c["score"] or 0 for c in clips) / max(len(clips), 1), 1),
-                             score_label="Compilação", breakdown={}, hook=meta["thumb_text"],
+                             score_label=comp_label, breakdown={}, hook=meta["thumb_text"],
                              title=meta["title"], description=meta["description"], hashtags=meta["hashtags"],
                              tags=meta["tags"], file_path=str(out), thumb_path=str(thumb), status="rendered")
         metadata.export_txt(meta, work / "metadata.txt")

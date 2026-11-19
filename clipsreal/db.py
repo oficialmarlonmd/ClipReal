@@ -65,7 +65,12 @@ CREATE TABLE IF NOT EXISTS seen_videos (
 
 with _lock:
     _conn.executescript(SCHEMA)
+    try:
+        _conn.execute("ALTER TABLE clips ADD COLUMN render_mode TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     _conn.commit()
+    _CLIP_COLS = {r[1] for r in _conn.execute("PRAGMA table_info(clips)").fetchall()}
 
 JSON_FIELDS = {"breakdown", "hashtags", "tags", "options"}
 
@@ -136,6 +141,7 @@ def delete_job(job_id: int) -> None:
 
 # ---------------- clips ----------------
 def create_clip(job_id: int, **fields: Any) -> int:
+    fields = {k: v for k, v in fields.items() if k in _CLIP_COLS}
     fields = _enc({"job_id": job_id, "created_at": time.time(), **fields})
     cols = ", ".join(fields)
     qs = ", ".join("?" for _ in fields)
@@ -143,6 +149,7 @@ def create_clip(job_id: int, **fields: Any) -> int:
 
 
 def update_clip(clip_id: int, **fields: Any) -> None:
+    fields = {k: v for k, v in fields.items() if k in _CLIP_COLS}
     if not fields:
         return
     f = _enc(fields)

@@ -20,8 +20,9 @@ def main(argv=None):
     p = sub.add_parser("process", help="Processa um link/arquivo e gera os cortes")
     p.add_argument("source")
     p.add_argument("--count", type=int)
-    p.add_argument("--mode", choices=["blur", "crop", "face", "fit"])
+    p.add_argument("--mode", choices=["blur", "dual", "dual_dopamine", "card", "crop", "face", "fit"])
     p.add_argument("--min-score", type=float)
+    p.add_argument("--lang", choices=["auto", "pt", "en"], help="Idioma do áudio (auto | pt | en)")
     p.add_argument("--upload", action="store_true", help="Agenda upload automático no YouTube")
     p.add_argument("--no-video", action="store_true", help="Não envia o vídeo ao Gemini (só transcrição)")
 
@@ -75,7 +76,7 @@ def main(argv=None):
         return
 
     if a.cmd == "process":
-        opts = {"count": a.count, "mode": a.mode, "min_score": a.min_score, "auto_upload": a.upload}
+        opts = {"count": a.count, "mode": a.mode, "min_score": a.min_score, "language": a.lang, "auto_upload": a.upload}
         if a.no_video:
             opts["use_video"] = False
         jid = db.create_job(a.source, options={k: v for k, v in opts.items() if v is not None})

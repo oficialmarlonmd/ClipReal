@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import numpy as np
 
-from . import media, transcribe, virality
+from . import lang as lang_utils, media, transcribe, virality
 from .llm import get_llm
 
 log = logging.getLogger("clipsreal.highlights")
@@ -47,7 +48,7 @@ def _transcript_block(transcript: list[dict], a: float, b: float) -> str:
     return "\n".join(lines)
 
 
-PROMPT = """Você é o melhor editor de cortes virais de GTA 6 (GTA VI) do YouTube Brasil.
+PROMPT_PT = """Você é o melhor editor de cortes virais de GTA 6 (GTA VI) do YouTube Brasil.
 Canal: {channel} ({handle}) — nicho: {niche}.
 Vídeo de origem: "{title}" (duração total {duration:.0f}s). Trecho analisado: {a:.0f}s até {b:.0f}s.
 
@@ -71,12 +72,47 @@ Regras:
 - Comece exatamente no momento de maior gancho (não em silêncio ou introdução).
 - Termine logo após o payoff (sem enrolação no fim).
 - Retorne até {n} candidatos, do melhor para o pior. Seja rigoroso nas notas (0-10).
+- REGRA ESTRITA DE IDIOMA: Escreva TODOS os campos de texto ("hook", "category", "reason") estritamente em PORTUGUÊS (mantendo apenas nomes próprios do jogo como Lucia, Jason, Vice City, GTA 6). Não misture frases em inglês.
 
 Responda SOMENTE JSON neste formato:
 {{"clips":[{{"start":12.5,"end":41.0,
-  "hook":"TEXTO DE GANCHO NA TELA (máx 6 palavras, MAIÚSCULAS)",
+  "hook":"TEXTO DE GANCHO NA TELA (máx 6 palavras, MAIÚSCULAS, EM PORTUGUÊS)",
   "category":"humor|ação|revelação|easter egg|bug|polêmica|notícia|reação|gameplay insana",
-  "reason":"por que vai viralizar (1 frase)",
+  "reason":"por que vai viralizar (1 frase em português)",
+  "scores":{{"hook":0-10,"emotion":0-10,"value":0-10,"trend":0-10,"standalone":0-10}}}}]}}
+"""
+
+PROMPT_EN = """You are the top viral GTA 6 (Grand Theft Auto VI) YouTube Shorts editor.
+Channel: {channel} ({handle}) — niche: {niche}.
+Source video: "{title}" (total duration {duration:.0f}s). Analyzed segment: {a:.0f}s to {b:.0f}s.
+
+Your task: find the BEST moments to turn into viral YouTube Shorts.
+Criteria: strong hook in the first 1–3 seconds, emotion (comedy, shock, tension, hype),
+curiosity/reveal (secrets, details, easter eggs, physics, police AI, map, characters Lucia/Jason),
+a story with beginning-middle-end (payoff at the end), that works WITHOUT context from the full video.
+{video_note}
+
+TRANSCRIPT (absolute seconds):
+{transcript}
+
+AUDIO ENERGY PEAKS (t in seconds, intensity 0-1 — gunshots, explosions, screams, reactions):
+{peaks}
+
+SCENE CUTS PER MINUTE (mm:ss=count):
+{scenes}
+
+Rules:
+- Each clip must be between {min_s} and {max_s} seconds, non-overlapping, within {a:.0f}s–{b:.0f}s.
+- Start right on the strongest hook moment (never in silence or slow intro).
+- End right after the payoff (no dragging at the end).
+- Return up to {n} candidates, ordered best to worst. Be strict with scores (0-10).
+- STRICT LANGUAGE RULE: Write ALL generated text fields ("hook", "category", "reason") strictly in ENGLISH ONLY. Never use Portuguese or mix languages.
+
+Reply ONLY with valid JSON in this exact format:
+{{"clips":[{{"start":12.5,"end":41.0,
+  "hook":"ON-SCREEN HOOK TEXT (max 6 words, ALL CAPS, ENGLISH ONLY)",
+  "category":"comedy|action|reveal|easter egg|bug|controversy|news|reaction|insane gameplay",
+  "reason":"why this will go viral (1 short sentence in English)",
   "scores":{{"hook":0-10,"emotion":0-10,"value":0-10,"trend":0-10,"standalone":0-10}}}}]}}
 """
 
@@ -149,17 +185,23 @@ def llm_candidates(video: Path, proxy_dir: Path, transcript, signals, cfg, durat
     per_chunk = max(3, int(np.ceil(ccfg["target_count"] * 2 / n_chunks)))
     peaks = _peaks(signals, n=60)
     out: list[dict] = []
+    en = lang_utils.is_english(cfg.get("resolved_language") or ch.get("language"))
+    prompt_tpl = PROMPT_EN if en else PROMPT_PT
+    no_speech = "(no speech — gameplay/trailer video; use the video and signals)" if en else "(sem fala — vídeo de gameplay/trailer; use o vídeo e os sinais)"
+    na = "(n/a)" if en else "(n/d)"
+    vnote = ("The VIDEO is attached: watch it and also use what happens visually." if en
+             else "O VÍDEO está anexado: assista e use também o que acontece visualmente.") if files else ""
     try:
         for i in range(n_chunks):
             a, b = i * chunk, min(duration, (i + 1) * chunk)
             progress(0.4 + 0.6 * i / n_chunks, f"IA analisando trecho {i + 1}/{n_chunks}")
-            prompt = PROMPT.format(
+            prompt = prompt_tpl.format(
                 channel=ch["name"], handle=ch["handle"], niche=ch["niche"], title=title, duration=duration,
                 a=a, b=b, min_s=ccfg["min_seconds"], max_s=ccfg["max_seconds"], n=per_chunk,
-                transcript=_transcript_block(transcript, a, b) or "(sem fala — vídeo de gameplay/trailer; use o vídeo e os sinais)",
-                peaks=", ".join(f"{t:.0f}s:{v:.2f}" for t, v in peaks if a <= t <= b) or "(n/d)",
-                scenes=_scene_rate({"scenes": [t for t in signals.get("scenes", []) if a <= t <= b]}, b) or "(n/d)",
-                video_note="O VÍDEO está anexado: assista e use também o que acontece visualmente." if files else "",
+                transcript=_transcript_block(transcript, a, b) or no_speech,
+                peaks=", ".join(f"{t:.0f}s:{v:.2f}" for t, v in peaks if a <= t <= b) or na,
+                scenes=_scene_rate({"scenes": [t for t in signals.get("scenes", []) if a <= t <= b]}, b) or na,
+                video_note=vnote,
             )
             data = llm.generate_json(prompt, files=files)
             clips = data.get("clips", data) if isinstance(data, dict) else data
@@ -175,32 +217,41 @@ def llm_candidates(video: Path, proxy_dir: Path, transcript, signals, cfg, durat
     return out
 
 
-def _heuristic_hook(text: str, keywords: list[str], idx: int) -> tuple[str, str, str]:
+def _heuristic_hook(text: str, keywords: list[str], idx: int, lang: str = "pt") -> tuple[str, str, str]:
     low = text.lower()
-    hits = [k for k in keywords if k.lower() in low]
-    if any(k in low for k in ("easter egg", "segredo", "detalhe", "ninguém percebeu")):
-        return "NINGUÉM PERCEBEU ISSO NO GTA 6!", "easter egg", "segredo/detalhe oculto + pico de energia"
-    if any(k in low for k in ("polícia", "perseguição", "assalto", "heist")):
-        return "PERSEGUIÇÃO INSANA EM VICE CITY!", "ação", "alta tensão/ação + pico de áudio"
-    if any(k in low for k in ("bug", "glitch", "física")):
-        return "OLHA A FÍSICA DO GTA 6 😱", "bug", "física/momento inesperado + pico de energia"
+    hits = [k for k in keywords if re.search(r"\b" + re.escape(k.lower()) + r"\b", low)]
+    en = lang_utils.is_english(lang)
+    if any(k in low for k in ("easter egg", "segredo", "secret", "detalhe", "detail", "ninguém percebeu", "nobody noticed")):
+        return (("NOBODY NOTICED THIS IN GTA 6!", "easter egg", "hidden secret/detail + audio energy spike")
+                if en else ("NINGUÉM PERCEBEU ISSO NO GTA 6!", "easter egg", "segredo/detalhe oculto + pico de energia"))
+    if any(k in low for k in ("polícia", "police", "cop", "perseguição", "chase", "assalto", "robbery", "heist", "stick up")):
+        return (("INSANE CHASE IN VICE CITY!", "action", "high tension/action + audio spike")
+                if en else ("PERSEGUIÇÃO INSANA EM VICE CITY!", "ação", "alta tensão/ação + pico de áudio"))
+    if any(k in low for k in ("bug", "glitch", "física", "physics")):
+        return (("LOOK AT GTA 6 PHYSICS 😱", "bug", "unexpected physics/moment + energy spike")
+                if en else ("OLHA A FÍSICA DO GTA 6 😱", "bug", "física/momento inesperado + pico de energia"))
     if any(k in low for k in ("lucia", "jason")):
         name = "LUCIA" if "lucia" in low else "JASON"
-        return f"OLHA O QUE {name} FEZ NO GTA 6!", "gameplay insana", "protagonista em destaque + pico de energia"
+        return ((f"LOOK WHAT {name} DID IN GTA 6!", "insane gameplay", "protagonist spotlight + energy spike")
+                if en else (f"OLHA O QUE {name} FEZ NO GTA 6!", "gameplay insana", "protagonista em destaque + pico de energia"))
     if hits:
         kw = hits[0].upper()
-        return f"{kw} NO GTA 6 É ABSURDO!", "gameplay insana", f"palavras em alta ({', '.join(hits[:3])}) + pico de energia"
-    fallbacks = [
-        "MOMENTO INSANO NO GTA 6!",
-        "ISSO NO GTA 6 É REAL?!",
-        "OLHA O QUE ACONTECEU EM VICE CITY!",
-    ]
-    return fallbacks[idx % len(fallbacks)], "gameplay insana", "pico de intensidade de áudio e ritmo visual"
+        return ((f"{kw} IN GTA 6 IS INSANE!", "insane gameplay", f"trending keywords ({', '.join(hits[:3])}) + energy spike")
+                if en else (f"{kw} NO GTA 6 É ABSURDO!", "gameplay insana", f"palavras em alta ({', '.join(hits[:3])}) + pico de energia"))
+    fallbacks = (
+        ["INSANE MOMENT IN GTA 6!", "IS THIS REAL IN GTA 6?!", "LOOK WHAT HAPPENED IN VICE CITY!"]
+        if en else ["MOMENTO INSANO NO GTA 6!", "ISSO NO GTA 6 É REAL?!", "OLHA O QUE ACONTECEU EM VICE CITY!"]
+    )
+    return (fallbacks[idx % len(fallbacks)],
+            "insane gameplay" if en else "gameplay insana",
+            "audio intensity peak and visual pacing" if en else "pico de intensidade de áudio e ritmo visual")
 
 
 def heuristic_candidates(transcript, signals, cfg, duration: float) -> list[dict]:
     ccfg = cfg["clips"]
     kws = cfg.get("trend_keywords") or []
+    lang = cfg.get("resolved_language") or cfg["channel"].get("language") or "pt"
+    en = lang_utils.is_english(lang)
     lens = [L for L in (24, 32, 42) if ccfg["min_seconds"] <= L <= ccfg["max_seconds"]] or [ccfg["min_seconds"]]
     peaks = _peaks(signals, n=80, min_gap=8)
     cands = []
@@ -209,12 +260,14 @@ def heuristic_candidates(transcript, signals, cfg, duration: float) -> list[dict
             start = max(0.0, t - min(4.0, L * 0.25))   # pico logo no início = gancho
             end = min(duration, start + L)
             txt = transcribe.text_between(transcript, start, end)
-            hook, cat, reason = _heuristic_hook(txt, kws, idx)
+            hook, cat, reason = _heuristic_hook(txt, kws, idx, lang=lang)
             cands.append({"start": start, "end": end, "hook": hook, "reason": reason, "category": cat})
     if not cands:  # sem áudio: janelas regulares
         step = max(ccfg["min_seconds"], 30)
-        cands = [{"start": s, "end": min(duration, s + step), "hook": "MOMENTO INSANO NO GTA 6!",
-                  "reason": "janela de gameplay", "category": "gameplay"}
+        cands = [{"start": s, "end": min(duration, s + step),
+                  "hook": "INSANE MOMENT IN GTA 6!" if en else "MOMENTO INSANO NO GTA 6!",
+                  "reason": "gameplay highlight window" if en else "janela de gameplay",
+                  "category": "gameplay"}
                  for s in np.arange(0, max(duration - ccfg["min_seconds"], 1), step)]
     return cands
 
@@ -222,6 +275,10 @@ def heuristic_candidates(transcript, signals, cfg, duration: float) -> list[dict
 def find_highlights(video: Path, work_dir: Path, transcript, signals, cfg, duration: float, title: str,
                     progress=None) -> tuple[list[dict], str]:
     """Retorna (cortes ordenados por score, método usado)."""
+    t_sample = " ".join(s["text"] for s in (transcript or [])[:40])
+    det = transcribe.detected_language(work_dir / "transcript.json")
+    target_lang = lang_utils.effective_language(cfg, transcript_text=t_sample, title=title, detected=det)
+    cfg = lang_utils.apply_language_cfg(cfg, target_lang)
     method = "heurístico"
     raw: list[dict] = []
     if get_llm().available:
