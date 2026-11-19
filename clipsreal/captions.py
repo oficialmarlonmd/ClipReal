@@ -82,6 +82,8 @@ def build_ass(words: list[dict], out: Path, rcfg: dict, duration: float, hook: s
     wm_out_alpha = min(255, int(wm_alpha + (255 - wm_alpha) * 0.45))
     h_txt, h_box, h_back = _HOOK_STYLES.get((rcfg.get("hook_style") or "white").lower(), _HOOK_STYLES["white"])
     h_align, h_margin_v = _hook_layout(rcfg, height, has_broll=has_broll)
+    is_dual = (rcfg.get("mode") or "") in ("dual", "dual_dopamine")
+    hook_sz = min(int(rcfg.get("hook_size", 66)), 54) if is_dual else int(rcfg.get("hook_size", 66))
     cap_margin_v = int(rcfg.get("caption_margin_v", 470))
     if (rcfg.get("mode") or "") in ("dual", "dual_dopamine", "card"):
         cap_margin_v = min(cap_margin_v, int(height * 0.14))
@@ -94,8 +96,8 @@ def build_ass(words: list[dict], out: Path, rcfg: dict, duration: float, hook: s
         "MarginR, MarginV, Encoding",
         f"Style: Caption,{font},{size},{rcfg['caption_color']},&H000000FF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,"
         f"1,7,3,2,60,60,{cap_margin_v},1",
-        f"Style: Hook,{rcfg['hook_font']},{rcfg['hook_size']},{h_txt},&H000000FF,{h_box},{h_back},-1,0,0,0,"
-        f"100,100,0,0,3,18,0,{h_align},70,70,{h_margin_v},1",
+        f"Style: Hook,{rcfg['hook_font']},{hook_sz},{h_txt},&H000000FF,{h_box},{h_back},-1,0,0,0,"
+        f"100,100,0,0,3,16,0,{h_align},56,56,{h_margin_v},1",
         f"Style: Mark,Arial,{wm_size},&H{wm_alpha:02X}FFFFFF,&H000000FF,&H{wm_out_alpha:02X}000000,&H00000000,-1,0,0,0,"
         f"100,100,1,0,1,2,0,{wm_align},48,48,{wm_margin_v},1",
         "", "[Events]",
@@ -103,7 +105,8 @@ def build_ass(words: list[dict], out: Path, rcfg: dict, duration: float, hook: s
     ]
     end_all = ts(duration)
     if hook and rcfg.get("hook_title", True):
-        wrapped = "\\N".join(textwrap.wrap(_esc(hook.upper()), width=20)[:3])
+        wrap_w = 28 if is_dual else 22
+        wrapped = "\\N".join(textwrap.wrap(_esc(hook.upper()), width=wrap_w)[:2])
         lines.append(f"Dialogue: 2,{ts(0)},{end_all},Hook,,0,0,0,,{wrapped}")
     if watermark and rcfg.get("watermark", True):
         lines.append(f"Dialogue: 1,{ts(0)},{end_all},Mark,,0,0,0,,{_esc(watermark)}")
