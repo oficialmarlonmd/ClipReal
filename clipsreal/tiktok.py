@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from .config import DATA, tiktok_client_key, tiktok_client_secret, tiktok_redirect_uri
+from .config import DATA, oauth_broker_url, tiktok_client_key, tiktok_client_secret, tiktok_redirect_uri
 
 log = logging.getLogger("clipsreal.tiktok")
 TOKEN = DATA / "tiktok_token.json"
@@ -196,6 +196,34 @@ def finish_oauth(code: str, state: str) -> dict[str, Any]:
     return connected_summary()
 
 
+def save_broker_token(token_bundle: dict[str, Any]) -> dict[str, Any]:
+    """Persiste token TikTok obtido via OAuth Broker (1 clique)."""
+    token = str(token_bundle.get("access_token") or "").strip()
+    if not token:
+        raise ValueError("Access Token do TikTok ausente na resposta do OAuth Broker.")
+    now = time.time()
+    exp_in = int(token_bundle.get("expires_in") or 86400)
+    tok = {
+        "auth_mode": "broker",
+        "access_token": token,
+        "refresh_token": str(token_bundle.get("refresh_token") or ""),
+        "open_id": str(token_bundle.get("open_id") or ""),
+        "display_name": str(token_bundle.get("display_name") or ""),
+        "username": str(token_bundle.get("username") or ""),
+        "scope": str(token_bundle.get("scope") or "user.info.basic,video.publish,video.upload"),
+        "expires_at": int(token_bundle.get("expires_at") or (now + exp_in)),
+    }
+    if not tok["username"] and not tok["display_name"]:
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                prof = _fetch_user_profile(client, token)
+                tok.update({k: v for k, v in prof.items() if v})
+        except Exception:  # noqa: BLE001
+            pass
+    _save_token(tok)
+    return connected_summary()
+
+
 def connect_manual(access_token: str, open_id: str = "", scope: str = "") -> dict[str, Any]:
     token = access_token.strip()
     if not token:
@@ -233,28 +261,43 @@ def connect_manual(access_token: str, open_id: str = "", scope: str = "") -> dic
 def ensure_valid_token() -> dict[str, Any]:
     tok = _load_token()
     if not tok:
-        raise RuntimeError("TikTok não conectado. Conecte em Chaves & API → Redes Sociais.")
+        raise RuntimeError("TikTok não conectado. Conecte em Chaves & API → Instagram & TikTok.")
     exp = tok.get("expires_at")
-    if exp and time.time() > float(exp) - 120 and tok.get("refresh_token") and tiktok_client_key() and tiktok_client_secret():
-        with httpx.Client(timeout=30.0) as client:
-            r = client.post(
-                f"{API_BASE}/v2/oauth/token/",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={
-                    "client_key": tiktok_client_key(),
-                    "client_secret": tiktok_client_secret(),
-                    "grant_type": "refresh_token",
-                    "refresh_token": tok["refresh_token"],
-                },
-            )
-            d = r.json()
-            if r.is_success and "access_token" in d:
-                now = time.time()
-                tok["access_token"] = d["access_token"]
-                tok["refresh_token"] = d.get("refresh_token") or tok["refresh_token"]
-                tok["scope"] = d.get("scope") or tok.get("scope") or ""
-                tok["expires_at"] = int(now + int(d.get("expires_in") or 86400))
-                _save_token(tok)
+    if exp and time.time() > float(exp) - 120 and tok.get("refresh_token"):
+        if tiktok_client_key() and tiktok_client_secret():
+            with httpx.Client(timeout=30.0) as client:
+                r = client.post(
+                    f"{API_BASE}/v2/oauth/token/",
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data={
+                        "client_key": tiktok_client_key(),
+                        "client_secret": tiktok_client_secret(),
+                        "grant_type": "refresh_token",
+                        "refresh_token": tok["refresh_token"],
+                    },
+                )
+                d = r.json()
+                if r.is_success and "access_token" in d:
+                    now = time.time()
+                    tok["access_token"] = d["access_token"]
+                    tok["refresh_token"] = d.get("refresh_token") or tok["refresh_token"]
+                    tok["scope"] = d.get("scope") or tok.get("scope") or ""
+                    tok["expires_at"] = int(now + int(d.get("expires_in") or 86400))
+                    _save_token(tok)
+        elif oauth_broker_url():
+            with httpx.Client(timeout=30.0) as client:
+                r = client.post(
+                    f"{oauth_broker_url()}/refresh/tiktok",
+                    json={"refresh_token": tok["refresh_token"]},
+                )
+                d = r.json() if r.content else {}
+                if r.is_success and "access_token" in d:
+                    now = time.time()
+                    tok["access_token"] = d["access_token"]
+                    tok["refresh_token"] = d.get("refresh_token") or tok["refresh_token"]
+                    tok["scope"] = d.get("scope") or tok.get("scope") or ""
+                    tok["expires_at"] = int(now + int(d.get("expires_in") or 86400))
+                    _save_token(tok)
     return tok
 
 

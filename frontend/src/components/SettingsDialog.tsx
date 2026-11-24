@@ -57,6 +57,9 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
   const [sources, setSources] = useState("");
   const [monAuto, setMonAuto] = useState(false);
 
+  const [brokerUrl, setBrokerUrl] = useState("");
+  const [ytConnected, setYtConnected] = useState(false);
+
   // Instagram & TikTok
   const [igAppId, setIgAppId] = useState("");
   const [igAppSecret, setIgAppSecret] = useState("");
@@ -96,7 +99,15 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
         setChName(c.channel?.name || "GTA VI");
         setHandle(c.channel?.handle || "@BabyDragonOFC");
         setCta(c.channel?.cta || "");
-        setYtStatus(c.client_secret ? "client_secret.json carregado" : "client_secret.json ainda não enviado.");
+        setBrokerUrl(c.oauth_broker_url || c.auth?.broker_url || "");
+        setYtConnected(Boolean(c.client_secret));
+        setYtStatus(
+          c.oauth_broker_url
+            ? "Login 1 clique ativo via OAuth Broker (sem precisar client_secret.json local)."
+            : c.client_secret
+              ? "client_secret.json carregado"
+              : "Conecte via OAuth Broker (1 clique) ou envie seu client_secret.json.",
+        );
         setCookiesBrowser(c.ingest?.cookies_from_browser || c.cookies_from_browser || "");
         setCookiesStatus(
           c.youtube_cookies
@@ -164,21 +175,26 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
   }, [open, ttUser.connected]);
 
   useEffect(() => {
-    const onMsg = (ev: MessageEvent) => {
-      if (ev.origin !== window.location.origin) return;
-      const d = ev.data as { type?: string; platform?: string; ok?: boolean; detail?: string } | null;
-      if (!d || d.type !== "clipsreal:oauth") return;
-      if (d.ok) {
-        toast.success(d.detail || `${d.platform} conectado!`);
-        void loadConfig();
-        onSaved();
-      } else {
-        toast.error(d.detail || `Falha no OAuth (${d.platform})`);
+    if (!open) return;
+    const onRefreshEvt = (ev: MessageEvent) => {
+      const d = ev.data as { type?: string } | null;
+      if (d?.type === "clipsreal:oauth" || d?.type === "clipsreal:broker_token") {
+        window.setTimeout(() => { void loadConfig(); }, 350);
       }
     };
-    window.addEventListener("message", onMsg);
-    return () => window.removeEventListener("message", onMsg);
-  }, [onSaved]);
+    window.addEventListener("message", onRefreshEvt);
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== "undefined") {
+      bc = new BroadcastChannel("clipsreal_oauth");
+      bc.onmessage = () => {
+        window.setTimeout(() => { void loadConfig(); }, 350);
+      };
+    }
+    return () => {
+      window.removeEventListener("message", onRefreshEvt);
+      bc?.close();
+    };
+  }, [open]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -200,12 +216,14 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
 
       await API.saveConfig({
         gemini_api_key: geminiKey.trim() || null,
+        oauth_broker_url: brokerUrl.trim().replace(/\/+$/, ""),
         instagram_app_id: igAppId.trim() || null,
         instagram_app_secret: igAppSecret.trim() || null,
         instagram_redirect_uri: igRedirect.trim() || null,
         tiktok_client_key: ttClientKey.trim() || null,
         tiktok_client_secret: ttClientSecret.trim() || null,
         tiktok_redirect_uri: ttRedirect.trim() || null,
+        auth: { broker_url: brokerUrl.trim().replace(/\/+$/, "") },
         channel: {
           name: chName.trim() || "GTA VI",
           handle: handle.trim() || "@BabyDragonOFC",
@@ -289,15 +307,33 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
   };
 
   const handleYtConnect = async () => {
-    toast.info("Abrindo navegador para autorizar o YouTube…");
     try {
-      const c = await API.ytAuth();
-      setYtStatus(`Conectado: ${c.title || "OK"}`);
-      toast.success("Canal conectado");
-      onSaved();
+      if (brokerUrl.trim()) {
+        await API.saveConfig({
+          oauth_broker_url: brokerUrl.trim().replace(/\/+$/, ""),
+          auth: { broker_url: brokerUrl.trim().replace(/\/+$/, "") },
+        });
+      }
+      const r = await API.ytOAuthStart();
+      if (r.mode === "broker" && r.auth_url) {
+        window.open(r.auth_url, "clipsreal_yt_oauth", "width=560,height=720");
+        toast.info("Entre com sua conta Google na janela aberta…");
+      } else {
+        setYtStatus(`Conectado: ${r.info?.title || "OK"}`);
+        toast.success("Canal conectado");
+        onSaved();
+      }
     } catch (e) {
       setYtStatus(`Erro: ${e instanceof Error ? e.message : "falha"}`);
+      toast.error(e instanceof Error ? e.message : "Falha ao conectar");
     }
+  };
+
+  const handleYtDisconnect = async () => {
+    await API.ytDisconnect();
+    setYtStatus("YouTube desconectado.");
+    toast.info("Conta Google desconectada.");
+    onSaved();
   };
 
   const handleCheckMonitor = async () => {
@@ -316,6 +352,8 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
     setSocialBusy("ig-oauth");
     try {
       await API.saveConfig({
+        oauth_broker_url: brokerUrl.trim().replace(/\/+$/, ""),
+        auth: { broker_url: brokerUrl.trim().replace(/\/+$/, "") },
         instagram_app_id: igAppId.trim() || null,
         instagram_app_secret: igAppSecret.trim() || null,
         instagram_redirect_uri: igRedirect.trim() || null,
@@ -366,6 +404,8 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
     setSocialBusy("tt-oauth");
     try {
       await API.saveConfig({
+        oauth_broker_url: brokerUrl.trim().replace(/\/+$/, ""),
+        auth: { broker_url: brokerUrl.trim().replace(/\/+$/, "") },
         tiktok_client_key: ttClientKey.trim() || null,
         tiktok_client_secret: ttClientSecret.trim() || null,
         tiktok_redirect_uri: ttRedirect.trim() || null,
@@ -565,24 +605,50 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
 
               <div className="rounded-lg border border-zinc-800/80 bg-[#16161a] p-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                  YouTube API &amp; Cookies (+18)
+                  Conta Google (YouTube) &amp; Cookies
                 </h3>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800">
-                    <Upload className="h-3 w-3" />
-                    <span>client_secret.json</span>
-                    <input
-                      type="file"
-                      accept=".json,application/json"
-                      className="hidden"
-                      onChange={(e) => handleSecretUpload(e.target.files?.[0])}
-                    />
-                  </label>
                   <Button variant="primary" size="sm" onClick={handleYtConnect}>
-                    Conectar canal
+                    <Link2 className="h-3.5 w-3.5" />
+                    <span>Entrar com Google (YouTube)</span>
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleYtDisconnect}>
+                    <Unlink className="h-3.5 w-3.5" />
+                    <span>Desconectar</span>
                   </Button>
                 </div>
                 <p className="mt-1.5 text-xs text-zinc-400">{ytStatus}</p>
+
+                <details className="mt-3 rounded-md border border-zinc-800/80 bg-zinc-950/60 p-2.5">
+                  <summary className="cursor-pointer text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
+                    Configuração avançada (OAuth Broker MVP / client_secret.json próprio)
+                  </summary>
+                  <div className="mt-2.5 space-y-2.5">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">
+                        OAuth Broker URL (opcional p/ login 1 clique sem JSON)
+                      </label>
+                      <input
+                        value={brokerUrl}
+                        onChange={(e) => setBrokerUrl(e.target.value)}
+                        placeholder="https://clipsreal-oauth-broker.seu-usuario.workers.dev"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800">
+                        <Upload className="h-3 w-3" />
+                        <span>{ytConnected ? "Substituir client_secret.json" : "Enviar client_secret.json"}</span>
+                        <input
+                          type="file"
+                          accept=".json,application/json"
+                          className="hidden"
+                          onChange={(e) => handleSecretUpload(e.target.files?.[0])}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </details>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <div>
@@ -642,7 +708,19 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
               </div>
             </div>
           ) : tab === "social" ? (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-4">
+              {!brokerUrl.trim() && (
+                <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-xs text-zinc-400">
+                  Para seus amigos conectarem <strong>Google, Instagram e TikTok em 1 clique</strong> sem criar apps nos portais, publique <code className="text-zinc-200">oauth-broker/worker.js</code> (grátis no Cloudflare) e cole a URL abaixo:
+                  <input
+                    value={brokerUrl}
+                    onChange={(e) => setBrokerUrl(e.target.value)}
+                    placeholder="https://clipsreal-oauth-broker.seu-usuario.workers.dev"
+                    className={cn(INPUT_CLS, "mt-2")}
+                  />
+                </div>
+              )}
+              <div className="grid gap-4 md:grid-cols-2">
               {/* Instagram Reels */}
               <div className="rounded-lg border border-zinc-800/80 bg-[#16161a] p-4">
                 <div className="flex items-center justify-between gap-2">
@@ -660,58 +738,7 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                 </div>
 
                 <div className="mt-3 flex flex-col gap-2.5">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="mb-1 block text-[11px] text-zinc-400">Meta App ID</label>
-                      <input
-                        value={igAppId}
-                        onChange={(e) => setIgAppId(e.target.value)}
-                        placeholder="App ID"
-                        className={INPUT_CLS}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[11px] text-zinc-400">App Secret</label>
-                      <input
-                        type="password"
-                        value={igAppSecret}
-                        onChange={(e) => setIgAppSecret(e.target.value)}
-                        placeholder={igSecretSet ? "Já salvo (preencha p/ trocar)" : "App Secret"}
-                        autoComplete="off"
-                        className={INPUT_CLS}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="mb-1 block text-[11px] text-zinc-400">Login OAuth</label>
-                      <select
-                        value={igLoginType}
-                        onChange={(e) => setIgLoginType(e.target.value as "instagram" | "facebook")}
-                        className={INPUT_CLS}
-                      >
-                        <option value="instagram">Instagram Login (direto)</option>
-                        <option value="facebook">Facebook Business Login</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[11px] text-zinc-400">Redirect URI</label>
-                      <input
-                        value={igRedirect}
-                        onChange={(e) => setIgRedirect(e.target.value)}
-                        placeholder="http://localhost:8000/api/instagram/callback"
-                        className={cn(INPUT_CLS, "text-[11px]")}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-0.5">
-                    <span className="text-xs text-zinc-300">Compartilhar Reel no Feed principal</span>
-                    <Switch checked={igShareFeed} onCheckedChange={setIgShareFeed} />
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 pt-1">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       variant="primary"
                       size="sm"
@@ -719,7 +746,7 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                       onClick={handleIgOAuth}
                     >
                       <Link2 className="h-3.5 w-3.5" />
-                      <span>{igUser.connected ? "Reconectar OAuth" : "Conectar via OAuth"}</span>
+                      <span>{igUser.connected ? "Trocar conta Instagram" : "Entrar com Instagram"}</span>
                     </Button>
                     {igUser.connected && (
                       <Button
@@ -734,35 +761,93 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                     )}
                   </div>
 
-                  <div className="mt-1 border-t border-zinc-800/80 pt-2.5">
-                    <p className="mb-1.5 text-[11px] text-zinc-500">
-                      Ou cole um Token gerado no painel Meta for Developers (conta Profissional/Business):
-                    </p>
-                    <div className="grid grid-cols-[1fr_110px] gap-1.5">
-                      <input
-                        type="password"
-                        value={igManualTok}
-                        onChange={(e) => setIgManualTok(e.target.value)}
-                        placeholder="Access Token (IGAA... ou EAA...)"
-                        autoComplete="off"
-                        className={INPUT_CLS}
-                      />
-                      <input
-                        value={igManualUid}
-                        onChange={(e) => setIgManualUid(e.target.value)}
-                        placeholder="IG ID (opc.)"
-                        className={INPUT_CLS}
-                      />
-                    </div>
-                    <Button
-                      size="sm"
-                      className="mt-2 w-full"
-                      disabled={socialBusy !== null}
-                      onClick={handleIgManual}
-                    >
-                      Conectar com Token
-                    </Button>
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-xs text-zinc-300">Compartilhar Reel no Feed principal</span>
+                    <Switch checked={igShareFeed} onCheckedChange={setIgShareFeed} />
                   </div>
+
+                  <details className="rounded-md border border-zinc-800/80 bg-zinc-950/60 p-2.5">
+                    <summary className="cursor-pointer text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
+                      Configuração avançada (App ID próprio ou Token direto)
+                    </summary>
+                    <div className="mt-2.5 flex flex-col gap-2.5">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-[11px] text-zinc-400">Meta App ID</label>
+                          <input
+                            value={igAppId}
+                            onChange={(e) => setIgAppId(e.target.value)}
+                            placeholder="App ID"
+                            className={INPUT_CLS}
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-zinc-400">App Secret</label>
+                          <input
+                            type="password"
+                            value={igAppSecret}
+                            onChange={(e) => setIgAppSecret(e.target.value)}
+                            placeholder={igSecretSet ? "Já salvo (preencha p/ trocar)" : "App Secret"}
+                            autoComplete="off"
+                            className={INPUT_CLS}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-[11px] text-zinc-400">Login OAuth</label>
+                          <select
+                            value={igLoginType}
+                            onChange={(e) => setIgLoginType(e.target.value as "instagram" | "facebook")}
+                            className={INPUT_CLS}
+                          >
+                            <option value="instagram">Instagram Login (direto)</option>
+                            <option value="facebook">Facebook Business Login</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-zinc-400">Redirect URI</label>
+                          <input
+                            value={igRedirect}
+                            onChange={(e) => setIgRedirect(e.target.value)}
+                            placeholder="http://localhost:8000/api/instagram/callback"
+                            className={cn(INPUT_CLS, "text-[11px]")}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="border-t border-zinc-800/80 pt-2">
+                        <p className="mb-1.5 text-[11px] text-zinc-500">
+                          Ou cole um Token direto (Meta for Developers):
+                        </p>
+                        <div className="grid grid-cols-[1fr_100px] gap-1.5">
+                          <input
+                            type="password"
+                            value={igManualTok}
+                            onChange={(e) => setIgManualTok(e.target.value)}
+                            placeholder="Access Token (IGAA... ou EAA...)"
+                            autoComplete="off"
+                            className={INPUT_CLS}
+                          />
+                          <input
+                            value={igManualUid}
+                            onChange={(e) => setIgManualUid(e.target.value)}
+                            placeholder="IG ID (opc.)"
+                            className={INPUT_CLS}
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          className="mt-2 w-full"
+                          disabled={socialBusy !== null}
+                          onClick={handleIgManual}
+                        >
+                          Conectar com Token
+                        </Button>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </div>
 
@@ -785,27 +870,27 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                 </div>
 
                 <div className="mt-3 flex flex-col gap-2.5">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="mb-1 block text-[11px] text-zinc-400">Client Key</label>
-                      <input
-                        value={ttClientKey}
-                        onChange={(e) => setTtClientKey(e.target.value)}
-                        placeholder="Client Key"
-                        className={INPUT_CLS}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-[11px] text-zinc-400">Client Secret</label>
-                      <input
-                        type="password"
-                        value={ttClientSecret}
-                        onChange={(e) => setTtClientSecret(e.target.value)}
-                        placeholder={ttSecretSet ? "Já salvo (preencha p/ trocar)" : "Client Secret"}
-                        autoComplete="off"
-                        className={INPUT_CLS}
-                      />
-                    </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={socialBusy !== null}
+                      onClick={handleTtOAuth}
+                    >
+                      <Link2 className="h-3.5 w-3.5" />
+                      <span>{ttUser.connected ? "Trocar conta TikTok" : "Entrar com TikTok"}</span>
+                    </Button>
+                    {ttUser.connected && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={socialBusy !== null}
+                        onClick={handleTtDisconnect}
+                      >
+                        <Unlink className="h-3.5 w-3.5" />
+                        <span>Desconectar</span>
+                      </Button>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -844,16 +929,6 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                     </div>
                   </div>
 
-                  <div>
-                    <label className="mb-1 block text-[11px] text-zinc-400">Redirect URI (Desktop/HTTPS)</label>
-                    <input
-                      value={ttRedirect}
-                      onChange={(e) => setTtRedirect(e.target.value)}
-                      placeholder="http://127.0.0.1:8000/api/tiktok/callback"
-                      className={cn(INPUT_CLS, "text-[11px]")}
-                    />
-                  </div>
-
                   <div className="flex flex-wrap items-center gap-4 text-[11px] text-zinc-400">
                     <label className="inline-flex items-center gap-1.5 cursor-pointer">
                       <Switch checked={!ttDisableComment} onCheckedChange={(v) => setTtDisableComment(!v)} />
@@ -869,59 +944,75 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                     </label>
                   </div>
 
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={socialBusy !== null}
-                      onClick={handleTtOAuth}
-                    >
-                      <Link2 className="h-3.5 w-3.5" />
-                      <span>{ttUser.connected ? "Reconectar OAuth" : "Conectar via OAuth"}</span>
-                    </Button>
-                    {ttUser.connected && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={socialBusy !== null}
-                        onClick={handleTtDisconnect}
-                      >
-                        <Unlink className="h-3.5 w-3.5" />
-                        <span>Desconectar</span>
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="mt-1 border-t border-zinc-800/80 pt-2.5">
-                    <p className="mb-1.5 text-[11px] text-zinc-500">
-                      Ou conecte diretamente com Access Token (Sandbox / Teste):
-                    </p>
-                    <div className="grid grid-cols-[1fr_110px] gap-1.5">
-                      <input
-                        type="password"
-                        value={ttManualTok}
-                        onChange={(e) => setTtManualTok(e.target.value)}
-                        placeholder="Access Token (act....)"
-                        autoComplete="off"
-                        className={INPUT_CLS}
-                      />
-                      <input
-                        value={ttManualOpenId}
-                        onChange={(e) => setTtManualOpenId(e.target.value)}
-                        placeholder="Open ID (opc.)"
-                        className={INPUT_CLS}
-                      />
+                  <details className="rounded-md border border-zinc-800/80 bg-zinc-950/60 p-2.5">
+                    <summary className="cursor-pointer text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
+                      Configuração avançada (Client Key própria ou Token direto)
+                    </summary>
+                    <div className="mt-2.5 flex flex-col gap-2.5">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="mb-1 block text-[11px] text-zinc-400">Client Key</label>
+                          <input
+                            value={ttClientKey}
+                            onChange={(e) => setTtClientKey(e.target.value)}
+                            placeholder="Client Key"
+                            className={INPUT_CLS}
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[11px] text-zinc-400">Client Secret</label>
+                          <input
+                            type="password"
+                            value={ttClientSecret}
+                            onChange={(e) => setTtClientSecret(e.target.value)}
+                            placeholder={ttSecretSet ? "Já salvo (preencha p/ trocar)" : "Client Secret"}
+                            autoComplete="off"
+                            className={INPUT_CLS}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[11px] text-zinc-400">Redirect URI (Desktop/HTTPS)</label>
+                        <input
+                          value={ttRedirect}
+                          onChange={(e) => setTtRedirect(e.target.value)}
+                          placeholder="http://127.0.0.1:8000/api/tiktok/callback"
+                          className={cn(INPUT_CLS, "text-[11px]")}
+                        />
+                      </div>
+                      <div className="border-t border-zinc-800/80 pt-2">
+                        <p className="mb-1.5 text-[11px] text-zinc-500">
+                          Ou conecte com Access Token (Sandbox):
+                        </p>
+                        <div className="grid grid-cols-[1fr_100px] gap-1.5">
+                          <input
+                            type="password"
+                            value={ttManualTok}
+                            onChange={(e) => setTtManualTok(e.target.value)}
+                            placeholder="Access Token (act....)"
+                            autoComplete="off"
+                            className={INPUT_CLS}
+                          />
+                          <input
+                            value={ttManualOpenId}
+                            onChange={(e) => setTtManualOpenId(e.target.value)}
+                            placeholder="Open ID (opc.)"
+                            className={INPUT_CLS}
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          className="mt-2 w-full"
+                          disabled={socialBusy !== null}
+                          onClick={handleTtManual}
+                        >
+                          Conectar com Token
+                        </Button>
+                      </div>
                     </div>
-                    <Button
-                      size="sm"
-                      className="mt-2 w-full"
-                      disabled={socialBusy !== null}
-                      onClick={handleTtManual}
-                    >
-                      Conectar com Token
-                    </Button>
-                  </div>
+                  </details>
                 </div>
+              </div>
               </div>
             </div>
           ) : (

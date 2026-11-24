@@ -6,20 +6,24 @@ import json
 import logging
 import mimetypes
 import os
+import secrets
 import shutil
 import tempfile
+import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlencode, urlparse
 
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db, instagram, media, metadata, monitor, pipeline, render, tiktok, youtube
 from .config import (BROLL_DIR, CFG, DATA, UPLOADS_DIR, gemini_key, instagram_app_id, instagram_app_secret,
-                     instagram_redirect_uri, reload, save_config, set_env_var, tiktok_client_key,
-                     tiktok_client_secret, tiktok_redirect_uri, youtube_client_secret,
+                     instagram_redirect_uri, oauth_broker_url, reload, save_config, set_env_var,
+                     tiktok_client_key, tiktok_client_secret, tiktok_redirect_uri, youtube_client_secret,
                      youtube_cookies_browser, youtube_cookies_file)
 from .llm import get_llm
 
@@ -120,6 +124,7 @@ def status():
         "tiktok_configured": bool(tiktok_client_key() and tiktok_client_secret()),
         "tiktok_redirect_uri": tiktok_redirect_uri(),
         "tiktok": CFG.get("tiktok") or {},
+        "oauth_broker_url": oauth_broker_url(),
         "monitor": monitor.running(), "queues": pipeline.queue_sizes(),
         "workspace": CFG["workspace"], "channel": CFG["channel"], "render": CFG["render"], "clips": CFG["clips"],
         "render_mode": CFG["render"]["mode"], "target_count": CFG["clips"]["target_count"],
@@ -530,14 +535,77 @@ def _oauth_popup_html(platform: str, ok: bool, detail: str) -> HTMLResponse:
   <button onclick="window.close()">Fechar janela</button>
 </div><script>
   try {{ if (window.opener) window.opener.postMessage({payload}, window.location.origin); }} catch (_) {{}}
+  try {{ const ch = new BroadcastChannel("clipsreal_oauth"); ch.postMessage({payload}); ch.close(); }} catch (_) {{}}
   {"setTimeout(() => window.close(), 1400);" if ok else ""}
 </script></body></html>"""
     return HTMLResponse(body, status_code=200 if ok else 400)
 
 
+_broker_lock = threading.Lock()
+_pending_broker: dict[str, tuple[str, float]] = {}  # client_state -> (provider, ts)
+
+
+def _safe_local_origin(origin: str | None) -> str:
+    raw = (origin or "").strip().rstrip("/")
+    if not raw:
+        port = (os.getenv("CLIPSREAL_PORT") or "8000").strip() or "8000"
+        return f"http://127.0.0.1:{port}"
+    u = urlparse(raw)
+    if u.scheme != "http" or u.hostname not in ("localhost", "127.0.0.1"):
+        raise HTTPException(400, "Origin local inválido para callback OAuth.")
+    return raw
+
+
+def _start_broker_url(provider: str, origin: str | None, mode: str = "") -> str:
+    broker = oauth_broker_url()
+    if not broker:
+        raise RuntimeError("OAUTH_BROKER_URL não configurada.")
+    base_origin = _safe_local_origin(origin)
+    nonce = secrets.token_urlsafe(24)
+    with _broker_lock:
+        cutoff = time.time() - 900
+        for k in [k for k, v in _pending_broker.items() if v[1] < cutoff]:
+            _pending_broker.pop(k, None)
+        _pending_broker[nonce] = (provider, time.time())
+    params: dict[str, str] = {
+        "callback": f"{base_origin}/api/oauth/broker-callback",
+        "client_state": nonce,
+    }
+    if mode:
+        params["mode"] = mode
+    return f"{broker}/auth/{provider}?{urlencode(params)}"
+
+
+def _finish_broker_bundle(provider: str, client_state: str, token_bundle: dict) -> dict:
+    with _broker_lock:
+        entry = _pending_broker.pop(client_state, None)
+    if not entry or entry[0] != provider:
+        raise HTTPException(400, "Sessão de login expirada ou inválida. Tente conectar novamente.")
+    if provider == "youtube":
+        info = youtube.save_broker_token(token_bundle)
+        label = info.get("title") or "YouTube conectado"
+        return {"platform": "youtube", "label": label, "info": info}
+    if provider == "instagram":
+        info = instagram.save_broker_token(token_bundle)
+        uname = info.get("username") or info.get("ig_user_id") or "Instagram conectado"
+        return {"platform": "instagram", "label": f"@{str(uname).lstrip('@')}", "info": info}
+    if provider == "tiktok":
+        info = tiktok.save_broker_token(token_bundle)
+        label = info.get("username") or info.get("display_name") or info.get("open_id") or "TikTok conectado"
+        return {"platform": "tiktok", "label": label, "info": info}
+    raise HTTPException(400, "Provedor OAuth inválido.")
+
+
 class SocialOAuthStartIn(BaseModel):
     mode: str | None = None
     redirect_uri: str | None = None
+    origin: str | None = None
+
+
+class BrokerCompleteIn(BaseModel):
+    provider: str
+    client_state: str
+    token_bundle: dict
 
 
 class InstagramManualIn(BaseModel):
@@ -552,12 +620,69 @@ class TikTokManualIn(BaseModel):
     scope: str = ""
 
 
+@app.post("/api/youtube/oauth/start")
+def youtube_oauth_start(b: SocialOAuthStartIn | None = Body(default=None)):
+    try:
+        if oauth_broker_url() and not (b and b.mode == "local"):
+            return {"mode": "broker", "auth_url": _start_broker_url("youtube", b.origin if b else None)}
+        if not youtube_client_secret().exists():
+            raise RuntimeError(
+                "Nenhum OAuth Broker nem client_secret.json configurados. Configure a URL do OAuth Broker "
+                "para login 1 clique ou envie client_secret.json em Configuração avançada."
+            )
+        return {"mode": "local", "info": youtube.authenticate()}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/youtube/auth")
+def youtube_disconnect():
+    youtube.disconnect()
+    return {"ok": True}
+
+
+@app.post("/api/oauth/broker-complete")
+def oauth_broker_complete(b: BrokerCompleteIn):
+    try:
+        res = _finish_broker_bundle(b.provider.strip().lower(), b.client_state, b.token_bundle)
+        return {"ok": True, **res}
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/oauth/broker-callback")
+async def oauth_broker_callback(request: Request, payload: str = Form(default="")):
+    raw_text = payload
+    if not raw_text:
+        try:
+            body_bytes = await request.body()
+            raw_text = body_bytes.decode("utf-8")
+        except Exception:  # noqa: BLE001
+            raw_text = ""
+    try:
+        data = json.loads(raw_text)
+        provider = str(data.get("provider") or "").strip().lower()
+        client_state = str(data.get("client_state") or "").strip()
+        token_bundle = data.get("token_bundle") or {}
+        res = _finish_broker_bundle(provider, client_state, token_bundle)
+        nice_name = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}.get(provider, provider)
+        return _oauth_popup_html(nice_name, True, f"Conectado como {res['label']}. Esta janela será fechada.")
+    except HTTPException as e:
+        return _oauth_popup_html("Conexão", False, str(e.detail))
+    except Exception as e:  # noqa: BLE001
+        return _oauth_popup_html("Conexão", False, str(e))
+
+
 @app.post("/api/instagram/oauth/start")
 def instagram_oauth_start(b: SocialOAuthStartIn | None = Body(default=None)):
     try:
         ltype = (b.mode if b and b.mode else None) or (CFG.get("instagram") or {}).get("login_type", "instagram")
+        if oauth_broker_url() and not (instagram_app_id() and instagram_app_secret()):
+            return {"mode": "broker", "auth_url": _start_broker_url("instagram", b.origin if b else None, mode=ltype)}
         url = instagram.start_oauth(login_type=ltype, redirect_uri=(b.redirect_uri if b else None))
-        return {"auth_url": url}
+        return {"mode": "local", "auth_url": url}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 
@@ -594,8 +719,10 @@ def instagram_disconnect():
 def tiktok_oauth_start(b: SocialOAuthStartIn | None = Body(default=None)):
     try:
         pmode = (b.mode if b and b.mode else None) or (CFG.get("tiktok") or {}).get("post_mode", "direct")
+        if oauth_broker_url() and not (tiktok_client_key() and tiktok_client_secret()):
+            return {"mode": "broker", "auth_url": _start_broker_url("tiktok", b.origin if b else None, mode=pmode)}
         url = tiktok.start_oauth(post_mode=pmode, redirect_uri=(b.redirect_uri if b else None))
-        return {"auth_url": url}
+        return {"mode": "local", "auth_url": url}
     except Exception as e:  # noqa: BLE001
         raise HTTPException(400, str(e))
 
@@ -656,15 +783,17 @@ def get_config():
         "tiktok_secret_masked": _mask_secret(tt_sec),
         "tiktok_redirect_uri": tiktok_redirect_uri(),
         "tiktok_user": tiktok.connected_summary(),
+        "oauth_broker_url": oauth_broker_url(),
         "workspace": CFG["workspace"], "channel": CFG["channel"], "clips": CFG["clips"],
         "render": CFG["render"], "llm": CFG["llm"], "transcription": CFG["transcription"],
         "upload": CFG["upload"], "instagram": CFG.get("instagram") or {}, "tiktok": CFG.get("tiktok") or {},
-        "monitor": CFG["monitor"], "ingest": CFG["ingest"],
+        "auth": CFG.get("auth") or {}, "monitor": CFG["monitor"], "ingest": CFG["ingest"],
     }
 
 
 class ConfigIn(BaseModel):
     gemini_api_key: str | None = None
+    oauth_broker_url: str | None = None
     instagram_app_id: str | None = None
     instagram_app_secret: str | None = None
     instagram_redirect_uri: str | None = None
@@ -680,6 +809,7 @@ class ConfigIn(BaseModel):
     upload: dict | None = None
     instagram: dict | None = None
     tiktok: dict | None = None
+    auth: dict | None = None
     monitor: dict | None = None
     ingest: dict | None = None
 
@@ -688,6 +818,8 @@ class ConfigIn(BaseModel):
 def update_config(c: ConfigIn):
     if c.gemini_api_key is not None and c.gemini_api_key.strip():
         set_env_var("GEMINI_API_KEY", c.gemini_api_key.strip())
+    if c.oauth_broker_url is not None:
+        set_env_var("OAUTH_BROKER_URL", c.oauth_broker_url.strip().rstrip("/"))
     for field, env_name in (
         (c.instagram_app_id, "INSTAGRAM_APP_ID"),
         (c.instagram_app_secret, "INSTAGRAM_APP_SECRET"),
@@ -705,7 +837,7 @@ def update_config(c: ConfigIn):
     updates = {k: v for k, v in {"workspace": c.workspace, "channel": c.channel, "clips": c.clips,
                                  "render": c.render, "llm": c.llm, "transcription": trans,
                                  "upload": c.upload, "instagram": c.instagram, "tiktok": c.tiktok,
-                                 "monitor": c.monitor, "ingest": c.ingest}.items()
+                                 "auth": c.auth, "monitor": c.monitor, "ingest": c.ingest}.items()
                if v is not None}
     if updates:
         save_config(updates)

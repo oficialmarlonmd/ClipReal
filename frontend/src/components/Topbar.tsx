@@ -18,18 +18,42 @@ export function Topbar({ view, status, onSelectView, onOpenSettings, onRefreshSt
     status?.render?.watermark !== false && Boolean((status?.channel?.watermark_text || "").trim());
 
   const handleYtQuickConnect = async () => {
-    if (!status?.client_secret) {
+    if (!status?.client_secret && !status?.oauth_broker_url) {
       onOpenSettings("yt");
-      toast.error("Suba o client_secret.json em Canal & YouTube.");
+      toast.info("Clique para conectar com Google (configure o Broker 1-clique ou envie client_secret.json).");
       return;
     }
-    toast.info("Abrindo navegador para autorizar o canal…");
     try {
-      const c = await API.ytAuth();
-      toast.success(`Conectado: ${c.title || "OK"}`);
-      onRefreshStatus();
+      const r = await API.ytOAuthStart();
+      if (r.mode === "broker" && r.auth_url) {
+        window.open(r.auth_url, "clipsreal_yt_oauth", "width=560,height=720");
+        toast.info("Entre com sua conta Google na janela aberta…");
+      } else {
+        toast.success(`Conectado: ${r.info?.title || "YouTube OK"}`);
+        onRefreshStatus();
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao conectar YouTube");
+    }
+  };
+
+  const handleSocialQuickConnect = async (platform: "instagram" | "tiktok") => {
+    const canOneClick =
+      Boolean(status?.oauth_broker_url) ||
+      (platform === "instagram" ? Boolean(status?.instagram_configured) : Boolean(status?.tiktok_configured));
+    if (!canOneClick) {
+      onOpenSettings("social");
+      return;
+    }
+    try {
+      const r =
+        platform === "instagram"
+          ? await API.igOAuthStart(status?.instagram?.login_type)
+          : await API.ttOAuthStart(status?.tiktok?.post_mode);
+      window.open(r.auth_url, `clipsreal_${platform}_oauth`, "width=560,height=720");
+      toast.info(`Entre com sua conta ${platform === "instagram" ? "Instagram" : "TikTok"} na janela aberta…`);
+    } catch {
+      onOpenSettings("social");
     }
   };
 
@@ -67,10 +91,10 @@ export function Topbar({ view, status, onSelectView, onOpenSettings, onRefreshSt
               ? `IG @${status.instagram_user.username.replace(/^@/, "")}`
               : status?.instagram_auth
                 ? "Instagram"
-                : "IG off"
+                : "Conectar IG"
           }
           muted={!status?.instagram_auth}
-          onClick={() => onOpenSettings("social")}
+          onClick={() => (status?.instagram_auth ? onOpenSettings("social") : handleSocialQuickConnect("instagram"))}
         />
         <StatusChip
           ok={Boolean(status?.tiktok_auth)}
@@ -79,10 +103,10 @@ export function Topbar({ view, status, onSelectView, onOpenSettings, onRefreshSt
               ? `TT ${status.tiktok_user.username ? `@${status.tiktok_user.username.replace(/^@/, "")}` : status.tiktok_user.display_name}`
               : status?.tiktok_auth
                 ? "TikTok"
-                : "TikTok off"
+                : "Conectar TikTok"
           }
           muted={!status?.tiktok_auth}
-          onClick={() => onOpenSettings("social")}
+          onClick={() => (status?.tiktok_auth ? onOpenSettings("social") : handleSocialQuickConnect("tiktok"))}
         />
 
         <button

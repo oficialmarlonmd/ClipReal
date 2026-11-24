@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { ConfirmDialog, type ConfirmState } from "@/components/ConfirmDialog";
 import { SettingsDialog, type SettingsTab } from "@/components/SettingsDialog";
 import { Sidebar } from "@/components/Sidebar";
@@ -94,6 +94,70 @@ export function App() {
     }, 2500);
     return () => window.clearInterval(id);
   }, [view, currentJobId, refreshStatus, refreshJobs, refreshActiveJob]);
+
+  // Global OAuth callback listener (supports both local callbacks and OAuth Broker popup/BroadcastChannel)
+  useEffect(() => {
+    const brokerOrigin = (() => {
+      try {
+        return status?.oauth_broker_url ? new URL(status.oauth_broker_url).origin : "";
+      } catch {
+        return "";
+      }
+    })();
+
+    const handleOAuthEvent = async (d: unknown, origin?: string) => {
+      if (!d || typeof d !== "object") return;
+      const msg = d as {
+        type?: string;
+        platform?: string;
+        ok?: boolean;
+        detail?: string;
+        provider?: string;
+        client_state?: string;
+        token_bundle?: Record<string, unknown>;
+      };
+      if (msg.type === "clipsreal:broker_token") {
+        if (origin && brokerOrigin && origin !== brokerOrigin) return;
+        if (msg.provider && msg.client_state && msg.token_bundle) {
+          try {
+            const res = await API.brokerComplete(msg.provider, msg.client_state, msg.token_bundle);
+            toast.success(`Conectado: ${res.label}`);
+            void refreshStatus();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Erro ao finalizar login");
+          }
+        }
+        return;
+      }
+      if (msg.type === "clipsreal:oauth") {
+        if (origin && origin !== window.location.origin) return;
+        if (msg.ok) {
+          toast.success(msg.detail || `${msg.platform || "Conta"} conectado!`);
+          void refreshStatus();
+        } else {
+          toast.error(msg.detail || "Falha ao conectar conta");
+        }
+      }
+    };
+
+    const onWinMsg = (ev: MessageEvent) => {
+      void handleOAuthEvent(ev.data, ev.origin);
+    };
+    window.addEventListener("message", onWinMsg);
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== "undefined") {
+      bc = new BroadcastChannel("clipsreal_oauth");
+      bc.onmessage = (ev) => {
+        void handleOAuthEvent(ev.data);
+      };
+    }
+
+    return () => {
+      window.removeEventListener("message", onWinMsg);
+      bc?.close();
+    };
+  }, [status?.oauth_broker_url, refreshStatus]);
 
   // Dynamic document title
   useEffect(() => {

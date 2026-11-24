@@ -254,6 +254,31 @@ def finish_oauth(code: str, state: str) -> dict[str, Any]:
     return connected_summary()
 
 
+def save_broker_token(token_bundle: dict[str, Any]) -> dict[str, Any]:
+    """Persiste token obtido via OAuth Broker (1 clique) e retorna resumo da conta."""
+    token = str(token_bundle.get("access_token") or "").strip()
+    if not token:
+        raise ValueError("Access Token do Instagram ausente na resposta do OAuth Broker.")
+    ig_user_id = str(token_bundle.get("ig_user_id") or "").strip()
+    username = str(token_bundle.get("username") or "").strip()
+    api_type = str(token_bundle.get("api_type") or "auto").strip() or "auto"
+    if not ig_user_id:
+        with httpx.Client(timeout=30.0) as client:
+            api_type, ig_user_id, discovered_name = _discover_account(client, token, api_type=api_type)
+            username = username or discovered_name
+    exp_in = token_bundle.get("expires_in")
+    expires_at = token_bundle.get("expires_at") or (int(time.time() + int(exp_in)) if exp_in else None)
+    _save_token({
+        "auth_mode": "broker",
+        "access_token": token,
+        "ig_user_id": ig_user_id,
+        "username": username,
+        "api_type": api_type,
+        "expires_at": expires_at,
+    })
+    return connected_summary()
+
+
 def connect_manual(access_token: str, ig_user_id: str = "", api_type: str = "auto") -> dict[str, Any]:
     token = access_token.strip()
     if not token:

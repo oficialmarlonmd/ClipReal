@@ -92,9 +92,9 @@ export const API = {
       body: JSON.stringify({ clip_ids: clipIds, platform }),
     }),
   igOAuthStart: (mode?: string, redirectUri?: string) =>
-    api<{ auth_url: string }>("/api/instagram/oauth/start", {
+    api<{ mode?: string; auth_url: string }>("/api/instagram/oauth/start", {
       method: "POST",
-      body: JSON.stringify({ mode, redirect_uri: redirectUri }),
+      body: JSON.stringify({ mode, redirect_uri: redirectUri, origin: window.location.origin }),
     }),
   igManualConnect: (accessToken: string, igUserId = "", apiType = "auto") =>
     api<InstagramAccountSummary>("/api/instagram/manual", {
@@ -103,9 +103,9 @@ export const API = {
     }),
   igDisconnect: () => api<{ ok: boolean }>("/api/instagram/auth", { method: "DELETE" }),
   ttOAuthStart: (mode?: string, redirectUri?: string) =>
-    api<{ auth_url: string }>("/api/tiktok/oauth/start", {
+    api<{ mode?: string; auth_url: string }>("/api/tiktok/oauth/start", {
       method: "POST",
-      body: JSON.stringify({ mode, redirect_uri: redirectUri }),
+      body: JSON.stringify({ mode, redirect_uri: redirectUri, origin: window.location.origin }),
     }),
   ttManualConnect: (accessToken: string, openId = "") =>
     api<TikTokAccountSummary>("/api/tiktok/manual", {
@@ -121,6 +121,17 @@ export const API = {
     api<{ ok: boolean }>("/api/config", { method: "POST", body: JSON.stringify(body) }),
   testGemini: () => api<{ ok: boolean; model: string }>("/api/gemini/test", { method: "POST" }),
   ytAuth: () => api<{ title?: string }>("/api/youtube/auth", { method: "POST" }),
+  ytOAuthStart: (mode?: string) =>
+    api<{ mode: "broker" | "local"; auth_url?: string; info?: { title?: string } }>("/api/youtube/oauth/start", {
+      method: "POST",
+      body: JSON.stringify({ mode, origin: window.location.origin }),
+    }),
+  ytDisconnect: () => api<{ ok: boolean }>("/api/youtube/auth", { method: "DELETE" }),
+  brokerComplete: (provider: string, clientState: string, tokenBundle: Record<string, unknown>) =>
+    api<{ ok: boolean; platform: string; label: string }>("/api/oauth/broker-complete", {
+      method: "POST",
+      body: JSON.stringify({ provider, client_state: clientState, token_bundle: tokenBundle }),
+    }),
   uploadSecret: (fd: FormData) => api<{ ok: boolean }>("/api/youtube/secret", { method: "POST", body: fd }),
   uploadCookies: (fd: FormData) => api<{ ok: boolean }>("/api/youtube/cookies", { method: "POST", body: fd }),
   brollList: () => api<BrollItem[]>("/api/broll"),

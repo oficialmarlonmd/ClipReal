@@ -56,6 +56,7 @@ DEFAULTS: dict = {
     "instagram": {"share_to_feed": True, "api_version": "v21.0", "login_type": "instagram"},
     "tiktok": {"privacy_level": "PUBLIC_TO_EVERYONE", "post_mode": "direct",
                "disable_comment": False, "disable_duet": False, "disable_stitch": False},
+    "auth": {"broker_url": ""},
     "monitor": {"interval_minutes": 30, "auto_upload": False, "sources": []},
     "ingest": {"cookies_from_browser": ""},
     "trend_keywords": ["gta 6", "gta vi", "vice city", "lucia", "jason"],
@@ -148,6 +149,12 @@ def tiktok_client_secret() -> str:
 
 def tiktok_redirect_uri() -> str:
     return (os.getenv("TIKTOK_REDIRECT_URI") or f"http://127.0.0.1:{_port_str()}/api/tiktok/callback").strip()
+
+
+def oauth_broker_url() -> str:
+    """URL pública opcional de um OAuth Broker do ClipsReal (login 1 clique para MVP sem JSON/chaves locais)."""
+    raw = (os.getenv("OAUTH_BROKER_URL") or (CFG.get("auth") or {}).get("broker_url") or "").strip()
+    return raw.rstrip("/")
 
 
 def set_env_var(key: str, value: str) -> None:

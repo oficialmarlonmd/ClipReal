@@ -124,6 +124,7 @@ export interface StatusResponse {
   tiktok_configured?: boolean;
   tiktok_redirect_uri?: string;
   tiktok?: TikTokConfig;
+  oauth_broker_url?: string;
   monitor: boolean;
   queues: { pipeline: number; uploads: number };
   workspace: WorkspaceConfig;
@@ -152,6 +153,8 @@ export interface ConfigResponse {
   tiktok_secret_masked?: string;
   tiktok_redirect_uri?: string;
   tiktok_user?: TikTokAccountSummary;
+  oauth_broker_url?: string;
+  auth?: { broker_url?: string };
   workspace: WorkspaceConfig;
   channel: ChannelConfig;
   clips: ClipsConfig;

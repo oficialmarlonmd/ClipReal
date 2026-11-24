@@ -1,14 +1,18 @@
 """YouTube Data API v3: OAuth, upload (Shorts/longo), agendamento (publishAt) e thumbnail."""
 from __future__ import annotations
 
+import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+import httpx
+
 from . import lang as lang_utils
-from .config import DATA, youtube_client_secret
+from .config import DATA, oauth_broker_url, youtube_client_secret
 
 log = logging.getLogger("clipsreal.youtube")
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]
@@ -42,9 +46,55 @@ def is_authenticated() -> bool:
     return TOKEN.exists()
 
 
+def _refresh_broker_token(raw: dict) -> dict:
+    broker = oauth_broker_url()
+    rt = raw.get("refresh_token")
+    if not broker or not rt:
+        raise RuntimeError("Sessão YouTube expirada. Reconecte sua conta Google no painel.")
+    with httpx.Client(timeout=25.0) as client:
+        r = client.post(f"{broker}/refresh/youtube", json={"refresh_token": rt})
+        d = r.json() if r.content else {}
+        if not r.is_success or not d.get("access_token"):
+            raise RuntimeError(d.get("detail") or d.get("error_description") or "Falha ao renovar sessão Google.")
+        raw["token"] = d["access_token"]
+        raw["refresh_token"] = d.get("refresh_token") or rt
+        raw["expires_at"] = int(time.time() + int(d.get("expires_in") or 3500))
+        TOKEN.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        return raw
+
+
+def save_broker_token(token_bundle: dict) -> dict:
+    """Persiste token obtido via OAuth Broker (1 clique) e retorna dados do canal."""
+    tok = str(token_bundle.get("token") or token_bundle.get("access_token") or "").strip()
+    if not tok:
+        raise ValueError("Token Google ausente na resposta do OAuth Broker.")
+    exp_in = int(token_bundle.get("expires_in") or 3500)
+    payload = {
+        "auth_mode": "broker",
+        "token": tok,
+        "refresh_token": str(token_bundle.get("refresh_token") or ""),
+        "expires_at": int(token_bundle.get("expires_at") or (time.time() + exp_in)),
+        "scopes": SCOPES,
+    }
+    TOKEN.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return channel_info()
+
+
 def _credentials(interactive: bool = False):
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
+
+    if TOKEN.exists():
+        try:
+            raw = json.loads(TOKEN.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            raw = {}
+        if raw.get("auth_mode") == "broker" or (raw.get("token") and not raw.get("client_secret")):
+            exp = raw.get("expires_at")
+            if exp and time.time() > float(exp) - 120:
+                raw = _refresh_broker_token(raw)
+            return Credentials(token=raw["token"], refresh_token=raw.get("refresh_token"), scopes=SCOPES)
 
     creds = None
     if TOKEN.exists():
@@ -56,15 +106,23 @@ def _credentials(interactive: bool = False):
         TOKEN.write_text(creds.to_json(), encoding="utf-8")
         return creds
     if not interactive:
-        raise RuntimeError("YouTube não autenticado. Rode: python -m clipsreal auth  (ou botão no painel)")
+        raise RuntimeError("YouTube não autenticado. Clique em Conectar com Google no painel.")
     from google_auth_oauthlib.flow import InstalledAppFlow
     secret = youtube_client_secret()
     if not secret.exists():
-        raise FileNotFoundError(f"client_secret.json não encontrado em {secret}. Veja README (seção YouTube API).")
+        raise FileNotFoundError(
+            f"client_secret.json não encontrado em {secret}. Configure um OAuth Broker para login em 1 clique "
+            "ou envie seu client_secret.json em Configuração avançada."
+        )
     flow = InstalledAppFlow.from_client_secrets_file(str(secret), SCOPES)
     creds = flow.run_local_server(port=0, prompt="consent", access_type="offline")
     TOKEN.write_text(creds.to_json(), encoding="utf-8")
     return creds
+
+
+def disconnect() -> None:
+    if TOKEN.is_file():
+        TOKEN.unlink()
 
 
 def authenticate() -> dict:
