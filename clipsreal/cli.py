@@ -49,7 +49,7 @@ def main(argv=None):
     from . import db, pipeline
 
     if a.cmd == "doctor":
-        from . import media, render, youtube
+        from . import instagram, media, render, tiktok, youtube
         from .config import gemini_key, youtube_client_secret, youtube_cookies_browser, youtube_cookies_file
         from .llm import get_llm
         ok = True
@@ -67,6 +67,11 @@ def main(argv=None):
                 print("Gemini modelo . ERRO", e)
         print("client_secret .", "OK" if youtube_client_secret().exists() else f"FALTANDO ({youtube_client_secret()})")
         print("YouTube token .", "OK" if youtube.is_authenticated() else "não autenticado (rode: auth)")
+        ig_sum = instagram.connected_summary()
+        print("Instagram .....", f"OK (@{ig_sum['username']})" if ig_sum.get("connected") else "não conectado (opcional p/ Reels)")
+        tt_sum = tiktok.connected_summary()
+        tt_name = tt_sum.get("username") or tt_sum.get("display_name") or tt_sum.get("open_id") or ""
+        print("TikTok ........", f"OK ({tt_name})" if tt_sum.get("connected") else "não conectado (opcional p/ TikTok)")
         cfile = youtube_cookies_file()
         cbrowser = youtube_cookies_browser()
         c_st = f"OK ({cfile.name})" if cfile.is_file() else (f"OK (navegador: {cbrowser})" if cbrowser else "não configurado (opcional p/ +18)")

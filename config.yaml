@@ -20,7 +20,7 @@ transcription:
   model: small
   device: cpu
   compute_type: int8
-  language: en
+  language: null
 clips:
   target_count: 15
   min_seconds: 15
@@ -105,3 +105,14 @@ workspace:
   owner_name: Criador GTA 6
   brand_tagline: GTA 6 Studio
   license_key: ''
+instagram:
+  login_type: instagram
+  share_to_feed: true
+tiktok:
+  post_mode: direct
+  privacy_level: PUBLIC_TO_EVERYONE
+  disable_comment: false
+  disable_duet: false
+  disable_stitch: false
+ingest:
+  cookies_from_browser: ''

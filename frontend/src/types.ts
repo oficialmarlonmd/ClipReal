@@ -1,5 +1,7 @@
 export type ViewId = "studio" | "brand" | "library" | "calendar" | "analytics" | "billing";
 
+export type SettingsTab = "ai" | "yt" | "social" | "mon";
+
 export type RenderMode = "blur" | "dual" | "dual_dopamine" | "card" | "face" | "crop" | "fit";
 
 export interface WorkspaceConfig {
@@ -72,6 +74,37 @@ export interface MonitorConfig {
   sources?: MonitorSource[];
 }
 
+export interface InstagramConfig {
+  share_to_feed?: boolean;
+  api_version?: string;
+  login_type?: "instagram" | "facebook";
+}
+
+export interface TikTokConfig {
+  privacy_level?: string;
+  post_mode?: "direct" | "inbox";
+  disable_comment?: boolean;
+  disable_duet?: boolean;
+  disable_stitch?: boolean;
+}
+
+export interface InstagramAccountSummary {
+  connected: boolean;
+  ig_user_id?: string;
+  username?: string;
+  api_type?: string;
+  expires_at?: number | null;
+}
+
+export interface TikTokAccountSummary {
+  connected: boolean;
+  open_id?: string;
+  username?: string;
+  display_name?: string;
+  scope?: string;
+  expires_at?: number | null;
+}
+
 export interface StatusResponse {
   ffmpeg: string | null;
   subtitles: boolean;
@@ -81,6 +114,16 @@ export interface StatusResponse {
   client_secret: boolean;
   youtube_cookies: boolean;
   cookies_from_browser: string;
+  instagram_auth?: boolean;
+  instagram_user?: InstagramAccountSummary;
+  instagram_configured?: boolean;
+  instagram_redirect_uri?: string;
+  instagram?: InstagramConfig;
+  tiktok_auth?: boolean;
+  tiktok_user?: TikTokAccountSummary;
+  tiktok_configured?: boolean;
+  tiktok_redirect_uri?: string;
+  tiktok?: TikTokConfig;
   monitor: boolean;
   queues: { pipeline: number; uploads: number };
   workspace: WorkspaceConfig;
@@ -99,6 +142,16 @@ export interface ConfigResponse {
   client_secret: boolean;
   youtube_cookies: boolean;
   cookies_from_browser: string;
+  instagram_app_id?: string;
+  instagram_secret_set?: boolean;
+  instagram_secret_masked?: string;
+  instagram_redirect_uri?: string;
+  instagram_user?: InstagramAccountSummary;
+  tiktok_client_key?: string;
+  tiktok_secret_set?: boolean;
+  tiktok_secret_masked?: string;
+  tiktok_redirect_uri?: string;
+  tiktok_user?: TikTokAccountSummary;
   workspace: WorkspaceConfig;
   channel: ChannelConfig;
   clips: ClipsConfig;
@@ -116,6 +169,8 @@ export interface ConfigResponse {
     language?: string | null;
   };
   upload: UploadConfig;
+  instagram?: InstagramConfig;
+  tiktok?: TikTokConfig;
   monitor: MonitorConfig;
   ingest?: { cookies_from_browser?: string };
 }
@@ -149,6 +204,14 @@ export interface ClipItem {
   youtube_url?: string | null;
   publish_at?: string | null;
   error?: string | null;
+  ig_status?: string;
+  ig_media_id?: string;
+  ig_url?: string;
+  ig_error?: string;
+  tiktok_status?: string;
+  tiktok_publish_id?: string;
+  tiktok_url?: string;
+  tiktok_error?: string;
 }
 
 export interface JobItem {
@@ -190,6 +253,8 @@ export interface AnalyticsResponse {
     rendered: number;
     scheduled: number;
     uploaded: number;
+    instagram_published?: number;
+    tiktok_published?: number;
     avg_score: number;
     source_minutes: number;
     clips_minutes: number;
@@ -202,6 +267,8 @@ export interface AnalyticsResponse {
     has_ffmpeg: boolean;
     has_gemini: boolean;
     has_youtube: boolean;
+    has_instagram?: boolean;
+    has_tiktok?: boolean;
     has_watermark: boolean;
     has_clips: boolean;
   };

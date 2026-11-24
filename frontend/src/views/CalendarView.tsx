@@ -4,10 +4,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { API } from "@/lib/api";
 import { cn, scoreBadgeClass } from "@/lib/utils";
-import type { ScheduleResponse } from "@/types";
+import type { ScheduleResponse, SettingsTab } from "@/types";
 
 interface Props {
-  onOpenSettings: (tab?: "ai" | "yt" | "mon") => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
   onOpenJobInStudio: (jobId: number) => void;
 }
 

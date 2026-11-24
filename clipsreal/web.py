@@ -1,6 +1,7 @@
 """Painel web local (FastAPI) — http://localhost:8000"""
 from __future__ import annotations
 
+import html
 import json
 import logging
 import mimetypes
@@ -11,13 +12,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import db, media, metadata, monitor, pipeline, render, youtube
-from .config import (BROLL_DIR, CFG, DATA, UPLOADS_DIR, gemini_key, reload, save_config, set_env_var,
-                     youtube_client_secret, youtube_cookies_browser, youtube_cookies_file)
+from . import db, instagram, media, metadata, monitor, pipeline, render, tiktok, youtube
+from .config import (BROLL_DIR, CFG, DATA, UPLOADS_DIR, gemini_key, instagram_app_id, instagram_app_secret,
+                     instagram_redirect_uri, reload, save_config, set_env_var, tiktok_client_key,
+                     tiktok_client_secret, tiktok_redirect_uri, youtube_client_secret,
+                     youtube_cookies_browser, youtube_cookies_file)
 from .llm import get_llm
 
 log = logging.getLogger("clipsreal.web")
@@ -31,6 +34,8 @@ async def _lifespan(_app: FastAPI):
         db.execute("DELETE FROM clips WHERE job_id=?", (j["id"],))
         pipeline.submit(pipeline.process_compilation if j["kind"] == "compilation" else pipeline.process_job, j["id"])
     db.execute("UPDATE clips SET status='rendered' WHERE status='uploading' AND (youtube_id IS NULL OR youtube_id='')")
+    db.execute("UPDATE clips SET ig_status='' WHERE ig_status='uploading'")
+    db.execute("UPDATE clips SET tiktok_status='' WHERE tiktok_status='uploading'")
     monitor.start()
     yield
 
@@ -105,6 +110,16 @@ def status():
         "gemini": bool(gemini_key()), "gemini_model": (get_llm().model if gemini_key() else None),
         "youtube_auth": youtube.is_authenticated(), "client_secret": youtube_client_secret().exists(),
         "youtube_cookies": youtube_cookies_file().is_file(), "cookies_from_browser": youtube_cookies_browser(),
+        "instagram_auth": instagram.is_authenticated(),
+        "instagram_user": instagram.connected_summary(),
+        "instagram_configured": bool(instagram_app_id() and instagram_app_secret()),
+        "instagram_redirect_uri": instagram_redirect_uri(),
+        "instagram": CFG.get("instagram") or {},
+        "tiktok_auth": tiktok.is_authenticated(),
+        "tiktok_user": tiktok.connected_summary(),
+        "tiktok_configured": bool(tiktok_client_key() and tiktok_client_secret()),
+        "tiktok_redirect_uri": tiktok_redirect_uri(),
+        "tiktok": CFG.get("tiktok") or {},
         "monitor": monitor.running(), "queues": pipeline.queue_sizes(),
         "workspace": CFG["workspace"], "channel": CFG["channel"], "render": CFG["render"], "clips": CFG["clips"],
         "render_mode": CFG["render"]["mode"], "target_count": CFG["clips"]["target_count"],
@@ -311,6 +326,101 @@ def upload_clip(clip_id: int, u: UploadIn):
     return {"ok": True}
 
 
+class InstagramPublishIn(BaseModel):
+    share_to_feed: bool | None = None
+
+
+@app.post("/api/clips/{clip_id}/instagram")
+def publish_instagram_clip(clip_id: int, body: InstagramPublishIn | None = Body(default=None)):
+    if not instagram.is_authenticated():
+        raise HTTPException(400, "Conecte o Instagram primeiro em Chaves & API → Instagram & TikTok.")
+    clip = db.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404)
+    try:
+        pipeline.assert_vertical_clip(clip)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db.update_clip(clip_id, ig_status="uploading", ig_error="")
+    pipeline.submit(pipeline.upload_instagram_clip, clip_id, body.share_to_feed if body else None, uploads=True)
+    return {"ok": True}
+
+
+class TikTokPublishIn(BaseModel):
+    privacy_level: str | None = None
+    post_mode: str | None = None
+
+
+@app.post("/api/clips/{clip_id}/tiktok")
+def publish_tiktok_clip(clip_id: int, body: TikTokPublishIn | None = Body(default=None)):
+    if not tiktok.is_authenticated():
+        raise HTTPException(400, "Conecte o TikTok primeiro em Chaves & API → Instagram & TikTok.")
+    clip = db.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404)
+    try:
+        pipeline.assert_vertical_clip(clip)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db.update_clip(clip_id, tiktok_status="uploading", tiktok_error="")
+    pipeline.submit(
+        pipeline.upload_tiktok_clip,
+        clip_id,
+        body.privacy_level if body else None,
+        body.post_mode if body else None,
+        uploads=True,
+    )
+    return {"ok": True}
+
+
+class BatchPublishIn(BaseModel):
+    clip_ids: list[int]
+    platform: str  # youtube | instagram | tiktok
+
+
+@app.post("/api/clips/publish-batch")
+def publish_batch(b: BatchPublishIn):
+    plat = b.platform.strip().lower()
+    if plat not in ("youtube", "instagram", "tiktok"):
+        raise HTTPException(400, "Plataforma inválida (use youtube, instagram ou tiktok).")
+    if plat == "youtube" and not youtube.is_authenticated():
+        raise HTTPException(400, "Conecte o YouTube primeiro.")
+    if plat == "instagram" and not instagram.is_authenticated():
+        raise HTTPException(400, "Conecte o Instagram primeiro.")
+    if plat == "tiktok" and not tiktok.is_authenticated():
+        raise HTTPException(400, "Conecte o TikTok primeiro.")
+    queued = 0
+    for cid in b.clip_ids:
+        c = db.get_clip(cid)
+        if not c or not c.get("file_path") or not Path(c["file_path"]).is_file():
+            continue
+        if plat == "youtube":
+            if c.get("youtube_id"):
+                continue
+            db.update_clip(cid, status="uploading", error=None)
+            pipeline.submit(pipeline.upload_clip, cid, "auto", uploads=True)
+            queued += 1
+        elif plat == "instagram":
+            try:
+                pipeline.assert_vertical_clip(c)
+            except ValueError:
+                continue
+            db.update_clip(cid, ig_status="uploading", ig_error="")
+            pipeline.submit(pipeline.upload_instagram_clip, cid, None, uploads=True)
+            queued += 1
+        elif plat == "tiktok":
+            try:
+                pipeline.assert_vertical_clip(c)
+            except ValueError:
+                continue
+            db.update_clip(cid, tiktok_status="uploading", tiktok_error="")
+            pipeline.submit(pipeline.upload_tiktok_clip, cid, None, None, uploads=True)
+            queued += 1
+    if not queued:
+        raise HTTPException(400, "Nenhum corte vertical renderizado elegível na seleção.")
+    return {"ok": True, "queued": queued}
+
+
 class CompIn(BaseModel):
     clip_ids: list[int]
     title: str = ""
@@ -391,23 +501,176 @@ def gemini_test():
         raise HTTPException(400, str(e))
 
 
+def _mask_secret(val: str) -> str:
+    return (val[:4] + "..." + val[-4:]) if len(val) > 10 else ("configurado" if val else "")
+
+
+def _oauth_popup_html(platform: str, ok: bool, detail: str) -> HTMLResponse:
+    safe_plat = html.escape(platform)
+    safe_msg = html.escape(detail)
+    status_color = "#34d399" if ok else "#fb7185"
+    title = f"{safe_plat} conectado" if ok else f"Erro ao conectar {safe_plat}"
+    payload = (
+        json.dumps({"type": "clipsreal:oauth", "platform": platform.lower(), "ok": ok, "detail": detail})
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    body = f"""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="color-scheme" content="dark">
+<title>{title} · ClipsReal</title>
+<style>
+  body{{background:#09090b;color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px}}
+  .box{{max-width:460px;width:100%;background:#121216;border:1px solid #27272a;border-radius:12px;padding:24px}}
+  h1{{font-size:16px;margin:0 0 8px;color:{status_color}}}
+  p{{font-size:13px;line-height:1.5;color:#a1a1aa;margin:0 0 16px;word-break:break-word}}
+  button{{background:#fafafa;color:#09090b;border:0;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer}}
+</style></head><body><div class="box">
+  <h1>{title}</h1><p>{safe_msg}</p>
+  <button onclick="window.close()">Fechar janela</button>
+</div><script>
+  try {{ if (window.opener) window.opener.postMessage({payload}, window.location.origin); }} catch (_) {{}}
+  {"setTimeout(() => window.close(), 1400);" if ok else ""}
+</script></body></html>"""
+    return HTMLResponse(body, status_code=200 if ok else 400)
+
+
+class SocialOAuthStartIn(BaseModel):
+    mode: str | None = None
+    redirect_uri: str | None = None
+
+
+class InstagramManualIn(BaseModel):
+    access_token: str
+    ig_user_id: str = ""
+    api_type: str = "auto"
+
+
+class TikTokManualIn(BaseModel):
+    access_token: str
+    open_id: str = ""
+    scope: str = ""
+
+
+@app.post("/api/instagram/oauth/start")
+def instagram_oauth_start(b: SocialOAuthStartIn | None = Body(default=None)):
+    try:
+        ltype = (b.mode if b and b.mode else None) or (CFG.get("instagram") or {}).get("login_type", "instagram")
+        url = instagram.start_oauth(login_type=ltype, redirect_uri=(b.redirect_uri if b else None))
+        return {"auth_url": url}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/instagram/callback")
+def instagram_callback(code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    if error:
+        return _oauth_popup_html("Instagram", False, error_description or error)
+    if not code or not state:
+        return _oauth_popup_html("Instagram", False, "Código de autorização ausente na resposta da Meta.")
+    try:
+        info = instagram.finish_oauth(code, state)
+        uname = info.get("username") or info.get("ig_user_id") or "conta vinculada"
+        return _oauth_popup_html("Instagram", True, f"Conectado como @{str(uname).lstrip('@')}. Esta janela será fechada.")
+    except Exception as e:  # noqa: BLE001
+        return _oauth_popup_html("Instagram", False, str(e))
+
+
+@app.post("/api/instagram/manual")
+def instagram_manual(b: InstagramManualIn):
+    try:
+        return instagram.connect_manual(b.access_token, ig_user_id=b.ig_user_id, api_type=b.api_type)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/instagram/auth")
+def instagram_disconnect():
+    instagram.disconnect()
+    return {"ok": True}
+
+
+@app.post("/api/tiktok/oauth/start")
+def tiktok_oauth_start(b: SocialOAuthStartIn | None = Body(default=None)):
+    try:
+        pmode = (b.mode if b and b.mode else None) or (CFG.get("tiktok") or {}).get("post_mode", "direct")
+        url = tiktok.start_oauth(post_mode=pmode, redirect_uri=(b.redirect_uri if b else None))
+        return {"auth_url": url}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/tiktok/callback")
+def tiktok_callback(code: str = "", state: str = "", error: str = "", error_description: str = ""):
+    if error:
+        return _oauth_popup_html("TikTok", False, error_description or error)
+    if not code or not state:
+        return _oauth_popup_html("TikTok", False, "Código de autorização ausente na resposta do TikTok.")
+    try:
+        info = tiktok.finish_oauth(code, state)
+        label = info.get("username") or info.get("display_name") or info.get("open_id") or "conta vinculada"
+        return _oauth_popup_html("TikTok", True, f"Conectado como {label}. Esta janela será fechada.")
+    except Exception as e:  # noqa: BLE001
+        return _oauth_popup_html("TikTok", False, str(e))
+
+
+@app.post("/api/tiktok/manual")
+def tiktok_manual(b: TikTokManualIn):
+    try:
+        return tiktok.connect_manual(b.access_token, open_id=b.open_id, scope=b.scope)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/tiktok/auth")
+def tiktok_disconnect():
+    tiktok.disconnect()
+    return {"ok": True}
+
+
+@app.get("/api/tiktok/creator-info")
+def tiktok_creator_info():
+    try:
+        return tiktok.creator_info()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/config")
 def get_config():
     k = gemini_key() or ""
-    masked = (k[:4] + "..." + k[-4:]) if len(k) > 10 else ("configurada" if k else "")
+    ig_sec = instagram_app_secret()
+    tt_sec = tiktok_client_secret()
     return {
-        "gemini_set": bool(k), "gemini_masked": masked,
+        "gemini_set": bool(k), "gemini_masked": _mask_secret(k),
         "client_secret": youtube_client_secret().exists(),
         "youtube_cookies": youtube_cookies_file().is_file(),
         "cookies_from_browser": youtube_cookies_browser(),
+        "instagram_app_id": instagram_app_id(),
+        "instagram_secret_set": bool(ig_sec),
+        "instagram_secret_masked": _mask_secret(ig_sec),
+        "instagram_redirect_uri": instagram_redirect_uri(),
+        "instagram_user": instagram.connected_summary(),
+        "tiktok_client_key": tiktok_client_key(),
+        "tiktok_secret_set": bool(tt_sec),
+        "tiktok_secret_masked": _mask_secret(tt_sec),
+        "tiktok_redirect_uri": tiktok_redirect_uri(),
+        "tiktok_user": tiktok.connected_summary(),
         "workspace": CFG["workspace"], "channel": CFG["channel"], "clips": CFG["clips"],
         "render": CFG["render"], "llm": CFG["llm"], "transcription": CFG["transcription"],
-        "upload": CFG["upload"], "monitor": CFG["monitor"], "ingest": CFG["ingest"],
+        "upload": CFG["upload"], "instagram": CFG.get("instagram") or {}, "tiktok": CFG.get("tiktok") or {},
+        "monitor": CFG["monitor"], "ingest": CFG["ingest"],
     }
 
 
 class ConfigIn(BaseModel):
     gemini_api_key: str | None = None
+    instagram_app_id: str | None = None
+    instagram_app_secret: str | None = None
+    instagram_redirect_uri: str | None = None
+    tiktok_client_key: str | None = None
+    tiktok_client_secret: str | None = None
+    tiktok_redirect_uri: str | None = None
     workspace: dict | None = None
     channel: dict | None = None
     clips: dict | None = None
@@ -415,6 +678,8 @@ class ConfigIn(BaseModel):
     llm: dict | None = None
     transcription: dict | None = None
     upload: dict | None = None
+    instagram: dict | None = None
+    tiktok: dict | None = None
     monitor: dict | None = None
     ingest: dict | None = None
 
@@ -423,13 +688,24 @@ class ConfigIn(BaseModel):
 def update_config(c: ConfigIn):
     if c.gemini_api_key is not None and c.gemini_api_key.strip():
         set_env_var("GEMINI_API_KEY", c.gemini_api_key.strip())
+    for field, env_name in (
+        (c.instagram_app_id, "INSTAGRAM_APP_ID"),
+        (c.instagram_app_secret, "INSTAGRAM_APP_SECRET"),
+        (c.instagram_redirect_uri, "INSTAGRAM_REDIRECT_URI"),
+        (c.tiktok_client_key, "TIKTOK_CLIENT_KEY"),
+        (c.tiktok_client_secret, "TIKTOK_CLIENT_SECRET"),
+        (c.tiktok_redirect_uri, "TIKTOK_REDIRECT_URI"),
+    ):
+        if field is not None and field.strip():
+            set_env_var(env_name, field.strip())
     trans = dict(c.transcription) if c.transcription is not None else None
     if trans is not None and "language" in trans:
         raw_lang = (trans["language"] or "").strip().lower()
         trans["language"] = None if raw_lang in ("", "auto", "none") else raw_lang
     updates = {k: v for k, v in {"workspace": c.workspace, "channel": c.channel, "clips": c.clips,
                                  "render": c.render, "llm": c.llm, "transcription": trans,
-                                 "upload": c.upload, "monitor": c.monitor, "ingest": c.ingest}.items()
+                                 "upload": c.upload, "instagram": c.instagram, "tiktok": c.tiktok,
+                                 "monitor": c.monitor, "ingest": c.ingest}.items()
                if v is not None}
     if updates:
         save_config(updates)
@@ -561,6 +837,8 @@ def get_analytics():
             "rendered": sum(1 for c in all_clips if c.get("status") == "rendered"),
             "scheduled": sum(1 for c in all_clips if c.get("status") == "scheduled"),
             "uploaded": sum(1 for c in all_clips if c.get("status") == "uploaded"),
+            "instagram_published": sum(1 for c in shorts if c.get("ig_status") == "published"),
+            "tiktok_published": sum(1 for c in shorts if c.get("tiktok_status") in ("published", "inbox")),
             "avg_score": round(sum(scores) / len(scores), 1) if scores else 0.0,
             "source_minutes": total_src_min,
             "clips_minutes": round(total_clip_sec / 60, 1),
@@ -573,6 +851,8 @@ def get_analytics():
             "has_ffmpeg": bool(media.ffmpeg_bin()) if _try_ffmpeg() else False,
             "has_gemini": bool(gemini_key()),
             "has_youtube": youtube.is_authenticated(),
+            "has_instagram": instagram.is_authenticated(),
+            "has_tiktok": tiktok.is_authenticated(),
             "has_watermark": bool((CFG["channel"].get("watermark_text") or "").strip()),
             "has_clips": len(all_clips) > 0,
         },

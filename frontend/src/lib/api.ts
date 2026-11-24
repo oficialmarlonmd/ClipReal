@@ -3,9 +3,11 @@ import type {
   BrollItem,
   ClipItem,
   ConfigResponse,
+  InstagramAccountSummary,
   JobItem,
   ScheduleResponse,
   StatusResponse,
+  TikTokAccountSummary,
 } from "@/types";
 
 export async function api<T = unknown>(url: string, opts: RequestInit = {}): Promise<T> {
@@ -77,6 +79,41 @@ export const API = {
     api<{ ok: boolean; queued: number }>("/api/clips/render-batch", { method: "POST", body: JSON.stringify(body) }),
   uploadClip: (id: number, schedule: string) =>
     api<{ ok: boolean }>(`/api/clips/${id}/upload`, { method: "POST", body: JSON.stringify({ schedule }) }),
+  publishInstagram: (id: number, shareToFeed?: boolean) =>
+    api<{ ok: boolean }>(`/api/clips/${id}/instagram`, {
+      method: "POST",
+      body: JSON.stringify(shareToFeed === undefined ? {} : { share_to_feed: shareToFeed }),
+    }),
+  publishTikTok: (id: number, opts?: { privacy_level?: string; post_mode?: string }) =>
+    api<{ ok: boolean }>(`/api/clips/${id}/tiktok`, { method: "POST", body: JSON.stringify(opts || {}) }),
+  publishBatch: (clipIds: number[], platform: "youtube" | "instagram" | "tiktok") =>
+    api<{ ok: boolean; queued: number }>("/api/clips/publish-batch", {
+      method: "POST",
+      body: JSON.stringify({ clip_ids: clipIds, platform }),
+    }),
+  igOAuthStart: (mode?: string, redirectUri?: string) =>
+    api<{ auth_url: string }>("/api/instagram/oauth/start", {
+      method: "POST",
+      body: JSON.stringify({ mode, redirect_uri: redirectUri }),
+    }),
+  igManualConnect: (accessToken: string, igUserId = "", apiType = "auto") =>
+    api<InstagramAccountSummary>("/api/instagram/manual", {
+      method: "POST",
+      body: JSON.stringify({ access_token: accessToken, ig_user_id: igUserId, api_type: apiType }),
+    }),
+  igDisconnect: () => api<{ ok: boolean }>("/api/instagram/auth", { method: "DELETE" }),
+  ttOAuthStart: (mode?: string, redirectUri?: string) =>
+    api<{ auth_url: string }>("/api/tiktok/oauth/start", {
+      method: "POST",
+      body: JSON.stringify({ mode, redirect_uri: redirectUri }),
+    }),
+  ttManualConnect: (accessToken: string, openId = "") =>
+    api<TikTokAccountSummary>("/api/tiktok/manual", {
+      method: "POST",
+      body: JSON.stringify({ access_token: accessToken, open_id: openId }),
+    }),
+  ttDisconnect: () => api<{ ok: boolean }>("/api/tiktok/auth", { method: "DELETE" }),
+  ttCreatorInfo: () => api<{ privacy_level_options?: string[]; creator_username?: string }>("/api/tiktok/creator-info"),
   compile: (clipIds: number[]) =>
     api<{ id: number }>("/api/compilation", { method: "POST", body: JSON.stringify({ clip_ids: clipIds }) }),
   config: () => api<ConfigResponse>("/api/config"),

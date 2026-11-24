@@ -11,7 +11,7 @@ Você atua garantindo que o ClipsReal rode de forma reprodutível em macOS (Appl
 ## Ambiente & Higiene de Segredos
 - **Python & Dependências:** `.venv` local com pacotes pinados/mínimos em `requirements.txt` (`yt-dlp`, `faster-whisper`, `av<16`, `google-genai`, `opencv-python`, `fastapi`, `uvicorn`, `google-api-python-client`, `Pillow`, `imageio-ffmpeg`, etc.).
 - **FFmpeg:** localizado via `clipsreal/media.py` (`PATH` -> WinGet no Windows -> `imageio-ffmpeg` embutido com `libass` no macOS/Windows).
-- **Arquivos Sensíveis (NUNCA commitar):** `.env`, `credentials/`, `data/`, `models/`, `*.db`, `client_secret*.json`, `youtube_token.json`, `cookies.txt`, `*cookies*.txt` (todos protegidos no `.gitignore`).
+- **Arquivos Sensíveis (NUNCA commitar):** `.env`, `credentials/`, `data/`, `models/`, `*.db`, `client_secret*.json`, `*token*.json` (`youtube_token.json`, `instagram_token.json`, `tiktok_token.json`), `cookies.txt`, `*cookies*.txt` (todos protegidos no `.gitignore`).
 
 ## Regras de Implementação & Qualidade
 1. **Sincronia de Variáveis de Ambiente:** sempre que uma nova variável `os.getenv(...)` for adicionada em `clipsreal/` (`GEMINI_API_KEY`, `YOUTUBE_CLIENT_SECRET`, `CLIPSREAL_DATA`, `CLIPSREAL_PORT`, `YT_DLP_COOKIES`, `YT_DLP_COOKIES_FROM_BROWSER`), documente-a imediatamente no `.env.example` com valores seguros/comentados (lembrando que `setup.ps1` copia `.env.example` para `.env`).

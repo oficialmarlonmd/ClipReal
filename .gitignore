@@ -8,6 +8,8 @@ models/
 *.db
 client_secret*.json
 youtube_token.json
+instagram_token.json
+tiktok_token.json
 cookies.txt
 *cookies*.txt
 frontend/node_modules/

@@ -13,7 +13,7 @@ Você atua como Arquiteto Back-end focado em confiabilidade, concorrência segur
 - **Persistência:** SQLite em `clipsreal/db.py` (`DATA / "clipsreal.db"`), thread-safe via `threading.RLock()` e serialização JSON para `breakdown`, `hashtags`, `tags`, `options`.
 - **Configuração:** `clipsreal/config.py` mesclando `DEFAULTS`, `config.yaml` e `.env` (`CLIPSREAL_DATA`, `CLIPSREAL_PORT`, `YOUTUBE_CLIENT_SECRET`, `YT_DLP_COOKIES`, `YT_DLP_COOKIES_FROM_BROWSER`).
 - **Filas & Orquestração:** `clipsreal/pipeline.py` com duas filas dedicadas (`_q` para processamento/render e `_upload_q` para uploads).
-- **Mídia & Publicação:** `ingest.py` (`yt-dlp`), `media.py` (`ffmpeg` / `imageio-ffmpeg`), `reframe.py` (OpenCV YuNet/Haar), `captions.py` (`.ass`/`libass`), `render.py` (`libx264` + `loudnorm`), `thumbnail.py` (Pillow), `youtube.py` (OAuth2 + `videos.insert` resumable + `next_slot`).
+- **Mídia & Publicação:** `ingest.py` (`yt-dlp`), `media.py` (`ffmpeg` / `imageio-ffmpeg`), `reframe.py` (OpenCV YuNet/Haar), `captions.py` (`.ass`/`libass`), `render.py` (`libx264` + `loudnorm`), `thumbnail.py` (Pillow), `youtube.py` (OAuth2 + `videos.insert` resumable + `next_slot`), `instagram.py` (Meta Reels Resumable Upload local em `9:16`) e `tiktok.py` (Content Posting API v2 PKCE + `FILE_UPLOAD` em chunks em `9:16`).
 
 ## Regras de Implementação
 1. **Concorrência & Não-bloqueio:** operações pesadas (`ingest`, `transcribe`, `scene_changes`, `render_short`, `render_compilation`, `youtube.upload`) devem rodar nas threads worker via `pipeline.submit(...)` — nunca bloqueie rotas HTTP de consulta.

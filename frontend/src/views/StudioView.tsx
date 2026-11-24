@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { API, uploadWithProgress } from "@/lib/api";
 import { cn, FMT_META, statusColorClass } from "@/lib/utils";
-import type { BrollItem, ClipItem, JobItem, RenderMode, StatusResponse, ViewId } from "@/types";
+import type { BrollItem, ClipItem, JobItem, RenderMode, SettingsTab, StatusResponse, ViewId } from "@/types";
 import { ClipCard } from "@/views/ClipCard";
 
 interface Props {
@@ -27,6 +27,7 @@ interface Props {
   onRefreshJob: () => void;
   onRefreshStatus: () => void;
   onSwitchView: (v: ViewId, subTab?: string) => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
   onRequestConfirm: (opts: {
     title: string;
     message: string;
@@ -49,6 +50,7 @@ export function StudioView({
   onRefreshJob,
   onRefreshStatus,
   onSwitchView,
+  onOpenSettings,
   onRequestConfirm,
 }: Props) {
   const initialized = useRef(false);
@@ -205,7 +207,15 @@ export function StudioView({
     if (clipFilter === "selected") list = list.filter((c) => selectedIds.has(c.id));
     else if (clipFilter === "rendered") list = list.filter((c) => c.status === "rendered");
     else if (clipFilter === "published") {
-      list = list.filter((c) => c.youtube_id || c.status === "scheduled" || c.status === "uploaded");
+      list = list.filter(
+        (c) =>
+          c.youtube_id ||
+          c.status === "scheduled" ||
+          c.status === "uploaded" ||
+          c.ig_status === "published" ||
+          c.tiktok_status === "published" ||
+          c.tiktok_status === "inbox",
+      );
     }
     if (clipSort === "time") list.sort((a, b) => (a.start || 0) - (b.start || 0));
     else list.sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -275,6 +285,34 @@ export function StudioView({
     }
     if (ok) toast.success(`${ok} corte(s) enviados para agendamento`);
     onRefreshJob();
+  };
+
+  const selectedShortsCount = clips.filter((c) => selectedIds.has(c.id) && c.kind === "short").length;
+
+  const batchPublishSocial = async (platform: "instagram" | "tiktok") => {
+    if (!selectedShortsCount) {
+      toast.error("Instagram Reels e TikTok aceitam apenas cortes verticais (9:16).");
+      return;
+    }
+    if (platform === "instagram" && !status?.instagram_auth) {
+      toast.error("Conecte seu Instagram primeiro em Chaves & API → Instagram & TikTok.");
+      onOpenSettings("social");
+      return;
+    }
+    if (platform === "tiktok" && !status?.tiktok_auth) {
+      toast.error("Conecte seu TikTok primeiro em Chaves & API → Instagram & TikTok.");
+      onOpenSettings("social");
+      return;
+    }
+    try {
+      const r = await API.publishBatch([...selectedIds], platform);
+      toast.success(
+        `${r.queued} corte(s) em pé enviado(s) para fila do ${platform === "instagram" ? "Instagram Reels" : "TikTok"}`,
+      );
+      onRefreshJob();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao enfileirar publicação");
+    }
   };
 
   return (
@@ -680,7 +718,23 @@ export function StudioView({
                 Compilar 16:9 ({selectedIds.size})
               </Button>
               <Button size="sm" variant="primary" disabled={selectedIds.size < 1} onClick={batchSchedule}>
-                Agendar ({selectedIds.size})
+                Agendar YT ({selectedIds.size})
+              </Button>
+              <Button
+                size="sm"
+                disabled={selectedShortsCount < 1}
+                onClick={() => batchPublishSocial("instagram")}
+                title="Publicar cortes verticais selecionados no Instagram Reels"
+              >
+                Reels ({selectedShortsCount})
+              </Button>
+              <Button
+                size="sm"
+                disabled={selectedShortsCount < 1}
+                onClick={() => batchPublishSocial("tiktok")}
+                title="Publicar cortes verticais selecionados no TikTok"
+              >
+                TikTok ({selectedShortsCount})
               </Button>
             </div>
           </div>
@@ -701,6 +755,7 @@ export function StudioView({
                 <ClipCard
                   key={c.id}
                   clip={c}
+                  status={status}
                   defaultMode={mode}
                   defaultCaptions={
                     typeof activeJob?.options?.captions === "boolean"
@@ -710,6 +765,7 @@ export function StudioView({
                   selected={selectedIds.has(c.id)}
                   onToggleSelect={toggleSelect}
                   onRefresh={onRefreshJob}
+                  onOpenSettings={onOpenSettings}
                   onConfirmPublishNow={(cid, saveFn) =>
                     onRequestConfirm({
                       title: `Publicar corte #${cid} agora?`,

@@ -8,6 +8,7 @@ import {
   ExternalLink,
   RefreshCw,
   Save,
+  Share2,
   Sparkles,
   Upload,
 } from "lucide-react";
@@ -15,15 +16,17 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { API } from "@/lib/api";
 import { cleanScoreLabel, cn, FMT_META, SCORE_LABELS, scoreBadgeClass } from "@/lib/utils";
-import type { ClipItem, RenderMode } from "@/types";
+import type { ClipItem, RenderMode, SettingsTab, StatusResponse } from "@/types";
 
 interface Props {
   clip: ClipItem;
+  status: StatusResponse | null;
   defaultMode: RenderMode;
   defaultCaptions: boolean;
   selected: boolean;
   onToggleSelect: (id: number) => void;
   onRefresh: () => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
   onConfirmPublishNow: (clipId: number, saveFn: () => Promise<void>) => void;
 }
 
@@ -32,11 +35,13 @@ const FIELD_CLS =
 
 export function ClipCard({
   clip,
+  status,
   defaultMode,
   defaultCaptions,
   selected,
   onToggleSelect,
   onRefresh,
+  onOpenSettings,
   onConfirmPublishNow,
 }: Props) {
   const [title, setTitle] = useState(clip.title || "");
@@ -143,6 +148,44 @@ export function ClipCard({
     }
   };
 
+  const publishInstagram = async () => {
+    if (!status?.instagram_auth) {
+      toast.error("Conecte o Instagram primeiro em Chaves & API → Instagram & TikTok.");
+      onOpenSettings("social");
+      return;
+    }
+    setBusy("ig");
+    try {
+      await save(true);
+      await API.publishInstagram(clip.id);
+      toast.info("Enviando corte vertical para o Instagram Reels…");
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao publicar no Instagram");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const publishTikTok = async () => {
+    if (!status?.tiktok_auth) {
+      toast.error("Conecte o TikTok primeiro em Chaves & API → Instagram & TikTok.");
+      onOpenSettings("social");
+      return;
+    }
+    setBusy("tt");
+    try {
+      await save(true);
+      await API.publishTikTok(clip.id);
+      toast.info("Enviando corte vertical para o TikTok…");
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao publicar no TikTok");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const copyAll = async () => {
     await navigator.clipboard.writeText(`${title}\n\n${description}\n\nTags: ${tags}`);
     toast.success("Metadados copiados");
@@ -221,9 +264,53 @@ export function ClipCard({
                 <span>
                   {clip.status === "scheduled" && clip.publish_at
                     ? `Agendado ${new Date(clip.publish_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`
-                    : "Publicado"}
+                    : "YT Publicado"}
                 </span>
               </a>
+            )}
+            {clip.ig_status === "published" && (
+              clip.ig_url ? (
+                <a
+                  href={clip.ig_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-500/30 hover:underline"
+                >
+                  <ExternalLink className="h-2.5 w-2.5" />
+                  <span>No Reels</span>
+                </a>
+              ) : (
+                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-500/30">
+                  No Reels
+                </span>
+              )
+            )}
+            {clip.ig_status === "uploading" && (
+              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-medium text-sky-300 border border-sky-500/30">
+                IG enviando…
+              </span>
+            )}
+            {(clip.tiktok_status === "published" || clip.tiktok_status === "inbox") && (
+              clip.tiktok_url ? (
+                <a
+                  href={clip.tiktok_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-500/30 hover:underline"
+                >
+                  <ExternalLink className="h-2.5 w-2.5" />
+                  <span>{clip.tiktok_status === "inbox" ? "Rascunho TikTok" : "No TikTok"}</span>
+                </a>
+              ) : (
+                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-500/30">
+                  {clip.tiktok_status === "inbox" ? "Rascunho TikTok" : "No TikTok"}
+                </span>
+              )
+            )}
+            {clip.tiktok_status === "uploading" && (
+              <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-medium text-sky-300 border border-sky-500/30">
+                TikTok enviando…
+              </span>
             )}
           </div>
 
@@ -385,6 +472,16 @@ export function ClipCard({
             {clip.error}
           </div>
         )}
+        {clip.ig_error && (
+          <div className="max-h-24 overflow-auto rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs text-rose-300 whitespace-pre-wrap">
+            {clip.ig_error}
+          </div>
+        )}
+        {clip.tiktok_error && (
+          <div className="max-h-24 overflow-auto rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-xs text-rose-300 whitespace-pre-wrap">
+            {clip.tiktok_error}
+          </div>
+        )}
 
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
           <Button
@@ -471,7 +568,7 @@ export function ClipCard({
             <>
               <Button size="sm" variant="primary" disabled={busy !== null} onClick={() => upload("auto")}>
                 <Upload className="h-3 w-3" />
-                <span>Agendar</span>
+                <span>Agendar YT</span>
               </Button>
               <Button
                 size="sm"
@@ -479,6 +576,44 @@ export function ClipCard({
                 onClick={() => onConfirmPublishNow(clip.id, () => upload("now"))}
               >
                 Publicar já
+              </Button>
+            </>
+          )}
+
+          {clip.kind === "short" &&
+            Boolean(clip.video_url) &&
+            clip.status !== "rendering" &&
+            clip.status !== "pending" && (
+            <>
+              <Button
+                size="sm"
+                disabled={busy !== null || clip.ig_status === "uploading"}
+                onClick={publishInstagram}
+                title="Postar corte em pé no Instagram Reels"
+              >
+                <Share2 className="h-3 w-3" />
+                <span>
+                  {clip.ig_status === "uploading"
+                    ? "IG…"
+                    : clip.ig_status === "published"
+                      ? "Repostar IG"
+                      : "IG Reels"}
+                </span>
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy !== null || clip.tiktok_status === "uploading"}
+                onClick={publishTikTok}
+                title="Postar corte em pé no TikTok"
+              >
+                <Share2 className="h-3 w-3" />
+                <span>
+                  {clip.tiktok_status === "uploading"
+                    ? "TikTok…"
+                    : clip.tiktok_status === "published" || clip.tiktok_status === "inbox"
+                      ? "Repostar TT"
+                      : "TikTok"}
+                </span>
               </Button>
             </>
           )}

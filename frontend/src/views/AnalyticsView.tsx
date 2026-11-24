@@ -4,11 +4,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { API } from "@/lib/api";
 import { cn, FMT_META, scoreBadgeClass } from "@/lib/utils";
-import type { AnalyticsResponse, RenderMode } from "@/types";
+import type { AnalyticsResponse, RenderMode, SettingsTab } from "@/types";
 
 interface Props {
   onOpenJobInStudio: (jobId: number) => void;
-  onOpenSettings: (tab?: "ai" | "yt" | "mon") => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
 }
 
 export function AnalyticsView({ onOpenJobInStudio, onOpenSettings }: Props) {
@@ -50,6 +50,8 @@ export function AnalyticsView({ onOpenJobInStudio, onOpenSettings }: Props) {
     { ok: data.onboarding.has_ffmpeg, label: "FFmpeg com suporte a legendas", action: null },
     { ok: data.onboarding.has_gemini, label: "Chave Gemini configurada", action: () => onOpenSettings("ai") },
     { ok: data.onboarding.has_youtube, label: "Canal do YouTube autenticado", action: () => onOpenSettings("yt") },
+    { ok: Boolean(data.onboarding.has_instagram), label: "Instagram Reels conectado", action: () => onOpenSettings("social") },
+    { ok: Boolean(data.onboarding.has_tiktok), label: "Conta do TikTok conectada", action: () => onOpenSettings("social") },
     { ok: data.onboarding.has_watermark, label: "Marca d'água do Brand Kit ativa", action: null },
     { ok: data.onboarding.has_clips, label: "Primeiro corte extraído", action: null },
   ];
@@ -67,7 +69,11 @@ export function AnalyticsView({ onOpenJobInStudio, onOpenSettings }: Props) {
       <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         <KpiCard label="Cortes gerados" value={String(t.clips)} sub={`${t.rendered} renderizados`} />
         <KpiCard label="Score médio" value={`${Math.round(t.avg_score)}/100`} sub={`${data.tiers.viral} virais (85+)`} />
-        <KpiCard label="Publicados / Fila" value={`${t.uploaded} / ${t.scheduled}`} sub={`${t.compilations} compilações`} />
+        <KpiCard
+          label="Publicados / Fila"
+          value={`${t.uploaded} / ${t.scheduled}`}
+          sub={`IG ${t.instagram_published || 0} · TT ${t.tiktok_published || 0} · ${t.compilations} comp.`}
+        />
         <KpiCard
           label="Minutos analisados"
           value={`${Math.round(t.source_minutes)}m`}

@@ -2,13 +2,13 @@ import { Layers, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { API } from "@/lib/api";
 import { cn, VIEW_META } from "@/lib/utils";
-import type { StatusResponse, ViewId } from "@/types";
+import type { SettingsTab, StatusResponse, ViewId } from "@/types";
 
 interface Props {
   view: ViewId;
   status: StatusResponse | null;
   onSelectView: (v: ViewId) => void;
-  onOpenSettings: (tab?: "ai" | "yt" | "mon") => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
   onRefreshStatus: () => void;
 }
 
@@ -60,6 +60,31 @@ export function Topbar({ view, status, onSelectView, onOpenSettings, onRefreshSt
           </button>
         )}
 
+        <StatusChip
+          ok={Boolean(status?.instagram_auth)}
+          label={
+            status?.instagram_auth && status.instagram_user?.username
+              ? `IG @${status.instagram_user.username.replace(/^@/, "")}`
+              : status?.instagram_auth
+                ? "Instagram"
+                : "IG off"
+          }
+          muted={!status?.instagram_auth}
+          onClick={() => onOpenSettings("social")}
+        />
+        <StatusChip
+          ok={Boolean(status?.tiktok_auth)}
+          label={
+            status?.tiktok_auth && (status.tiktok_user?.username || status.tiktok_user?.display_name)
+              ? `TT ${status.tiktok_user.username ? `@${status.tiktok_user.username.replace(/^@/, "")}` : status.tiktok_user.display_name}`
+              : status?.tiktok_auth
+                ? "TikTok"
+                : "TikTok off"
+          }
+          muted={!status?.tiktok_auth}
+          onClick={() => onOpenSettings("social")}
+        />
+
         <button
           type="button"
           onClick={() => onSelectView("brand")}
@@ -94,10 +119,12 @@ export function Topbar({ view, status, onSelectView, onOpenSettings, onRefreshSt
 function StatusChip({
   ok,
   label,
+  muted,
   onClick,
 }: {
   ok: boolean;
   label: string;
+  muted?: boolean;
   onClick?: () => void;
 }) {
   const Tag = onClick ? "button" : "span";
@@ -109,11 +136,13 @@ function StatusChip({
         "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium",
         ok
           ? "border-zinc-800 bg-zinc-900 text-zinc-200"
-          : "border-rose-500/30 bg-rose-500/10 text-rose-300",
+          : muted
+            ? "border-zinc-800/80 bg-zinc-950 text-zinc-500 hover:text-zinc-300"
+            : "border-rose-500/30 bg-rose-500/10 text-rose-300",
         onClick && "cursor-pointer hover:border-zinc-700 transition-colors",
       )}
     >
-      <span className={cn("h-1.5 w-1.5 rounded-full", ok ? "bg-emerald-400" : "bg-rose-400")} />
+      <span className={cn("h-1.5 w-1.5 rounded-full", ok ? "bg-emerald-400" : muted ? "bg-zinc-600" : "bg-rose-400")} />
       <span>{label}</span>
     </Tag>
   );

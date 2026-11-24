@@ -26,13 +26,13 @@ for d in (DATA, JOBS_DIR, UPLOADS_DIR, BROLL_DIR, CRED_DIR):
 
 DEFAULTS: dict = {
     "workspace": {
-        "plan": "Pro", "owner_name": "Criador GTA 6", "brand_tagline": "Clip's Studio",
+        "plan": "Pro", "owner_name": "Criador GTA 6", "brand_tagline": "Clip'sStudio",
         "license_key": "", "onboarding_dismissed": False,
     },
     "channel": {
-        "name": "GTA VI", "handle": "@BabyDragonOFC", "language": "pt-BR",
+        "name": "GTA VI", "handle": "@", "language": "pt-BR",
         "niche": "GTA 6", "default_hashtags": ["#GTA6", "#GTAVI", "#Shorts"],
-        "cta": "Inscreva-se para mais cortes de GTA 6!", "watermark_text": "@BabyDragonOFC",
+        "cta": "Inscreva-se para mais cortes de GTA 6!", "watermark_text": "@",
     },
     "llm": {"provider": "gemini", "model": "auto", "use_video_analysis": True,
             "max_video_minutes_for_upload": 50, "transcript_chunk_minutes": 10},
@@ -53,6 +53,9 @@ DEFAULTS: dict = {
                "timezone": "America/Sao_Paulo",
                "slots": ["07:30", "11:00", "13:00", "16:00", "18:30", "20:00", "21:30", "23:00"],
                "max_per_day": 6},
+    "instagram": {"share_to_feed": True, "api_version": "v21.0", "login_type": "instagram"},
+    "tiktok": {"privacy_level": "PUBLIC_TO_EVERYONE", "post_mode": "direct",
+               "disable_comment": False, "disable_duet": False, "disable_stitch": False},
     "monitor": {"interval_minutes": 30, "auto_upload": False, "sources": []},
     "ingest": {"cookies_from_browser": ""},
     "trend_keywords": ["gta 6", "gta vi", "vice city", "lucia", "jason"],
@@ -117,6 +120,34 @@ def youtube_cookies_browser() -> str:
     """Navegador configurado para leitura de cookies pelo yt-dlp (ex.: safari, chrome, firefox)."""
     return ((os.getenv("YT_DLP_COOKIES_FROM_BROWSER") or "").strip()
             or str((CFG.get("ingest") or {}).get("cookies_from_browser") or "").strip())
+
+
+def _port_str() -> str:
+    return (os.getenv("CLIPSREAL_PORT") or "8000").strip() or "8000"
+
+
+def instagram_app_id() -> str:
+    return (os.getenv("INSTAGRAM_APP_ID") or os.getenv("META_APP_ID") or "").strip()
+
+
+def instagram_app_secret() -> str:
+    return (os.getenv("INSTAGRAM_APP_SECRET") or os.getenv("META_APP_SECRET") or "").strip()
+
+
+def instagram_redirect_uri() -> str:
+    return (os.getenv("INSTAGRAM_REDIRECT_URI") or f"http://localhost:{_port_str()}/api/instagram/callback").strip()
+
+
+def tiktok_client_key() -> str:
+    return (os.getenv("TIKTOK_CLIENT_KEY") or "").strip()
+
+
+def tiktok_client_secret() -> str:
+    return (os.getenv("TIKTOK_CLIENT_SECRET") or "").strip()
+
+
+def tiktok_redirect_uri() -> str:
+    return (os.getenv("TIKTOK_REDIRECT_URI") or f"http://127.0.0.1:{_port_str()}/api/tiktok/callback").strip()
 
 
 def set_env_var(key: str, value: str) -> None:

@@ -1,14 +1,25 @@
 import { useEffect, useState } from "react";
-import { Cookie, ExternalLink, KeyRound, Link2, Radio, RefreshCw, Upload } from "lucide-react";
+import {
+  Cookie,
+  ExternalLink,
+  KeyRound,
+  Link2,
+  Radio,
+  RefreshCw,
+  Share2,
+  Smartphone,
+  Unlink,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { API } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { ConfigResponse } from "@/types";
+import type { ConfigResponse, InstagramAccountSummary, SettingsTab, TikTokAccountSummary } from "@/types";
 
-export type SettingsTab = "ai" | "yt" | "mon";
+export type { SettingsTab };
 
 interface Props {
   open: boolean;
@@ -46,14 +57,35 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
   const [sources, setSources] = useState("");
   const [monAuto, setMonAuto] = useState(false);
 
-  useEffect(() => {
-    setTab(initialTab);
-  }, [initialTab]);
+  // Instagram & TikTok
+  const [igAppId, setIgAppId] = useState("");
+  const [igAppSecret, setIgAppSecret] = useState("");
+  const [igSecretSet, setIgSecretSet] = useState(false);
+  const [igRedirect, setIgRedirect] = useState("");
+  const [igLoginType, setIgLoginType] = useState<"instagram" | "facebook">("instagram");
+  const [igShareFeed, setIgShareFeed] = useState(true);
+  const [igUser, setIgUser] = useState<InstagramAccountSummary>({ connected: false });
+  const [igManualTok, setIgManualTok] = useState("");
+  const [igManualUid, setIgManualUid] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
+  const [ttClientKey, setTtClientKey] = useState("");
+  const [ttClientSecret, setTtClientSecret] = useState("");
+  const [ttSecretSet, setTtSecretSet] = useState(false);
+  const [ttRedirect, setTtRedirect] = useState("");
+  const [ttPostMode, setTtPostMode] = useState<"direct" | "inbox">("direct");
+  const [ttPrivacy, setTtPrivacy] = useState("PUBLIC_TO_EVERYONE");
+  const [ttPrivacyOpts, setTtPrivacyOpts] = useState<string[]>([]);
+  const [ttDisableComment, setTtDisableComment] = useState(false);
+  const [ttDisableDuet, setTtDisableDuet] = useState(false);
+  const [ttDisableStitch, setTtDisableStitch] = useState(false);
+  const [ttUser, setTtUser] = useState<TikTokAccountSummary>({ connected: false });
+  const [ttManualTok, setTtManualTok] = useState("");
+  const [ttManualOpenId, setTtManualOpenId] = useState("");
+  const [socialBusy, setSocialBusy] = useState<string | null>(null);
+
+  const loadConfig = () => {
     setLoading(true);
-    API.config()
+    return API.config()
       .then((c: ConfigResponse) => {
         setGeminiKey("");
         setGeminiStatus(c.gemini_set ? `Chave ativa: ${c.gemini_masked}` : "Nenhuma chave configurada.");
@@ -82,10 +114,71 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
             .join("\n"),
         );
         setMonAuto(Boolean(c.monitor?.auto_upload));
+
+        setIgAppId(c.instagram_app_id || "");
+        setIgAppSecret("");
+        setIgSecretSet(Boolean(c.instagram_secret_set));
+        setIgRedirect(c.instagram_redirect_uri || "");
+        setIgLoginType(c.instagram?.login_type === "facebook" ? "facebook" : "instagram");
+        setIgShareFeed(c.instagram?.share_to_feed !== false);
+        setIgUser(c.instagram_user || { connected: false });
+
+        setTtClientKey(c.tiktok_client_key || "");
+        setTtClientSecret("");
+        setTtSecretSet(Boolean(c.tiktok_secret_set));
+        setTtRedirect(c.tiktok_redirect_uri || "");
+        setTtPostMode(c.tiktok?.post_mode === "inbox" ? "inbox" : "direct");
+        setTtPrivacy(c.tiktok?.privacy_level || "PUBLIC_TO_EVERYONE");
+        setTtDisableComment(Boolean(c.tiktok?.disable_comment));
+        setTtDisableDuet(Boolean(c.tiktok?.disable_duet));
+        setTtDisableStitch(Boolean(c.tiktok?.disable_stitch));
+        setTtUser(c.tiktok_user || { connected: false });
       })
       .catch((e) => toast.error(e instanceof Error ? e.message : "Erro ao carregar config"))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (!open) return;
+    void loadConfig();
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !ttUser.connected) {
+      setTtPrivacyOpts([]);
+      return;
+    }
+    API.ttCreatorInfo()
+      .then((d) => {
+        if (Array.isArray(d.privacy_level_options) && d.privacy_level_options.length > 0) {
+          setTtPrivacyOpts(d.privacy_level_options);
+        }
+      })
+      .catch(() => {
+        // fallback às opções padrão quando em sandbox/manual
+      });
+  }, [open, ttUser.connected]);
+
+  useEffect(() => {
+    const onMsg = (ev: MessageEvent) => {
+      if (ev.origin !== window.location.origin) return;
+      const d = ev.data as { type?: string; platform?: string; ok?: boolean; detail?: string } | null;
+      if (!d || d.type !== "clipsreal:oauth") return;
+      if (d.ok) {
+        toast.success(d.detail || `${d.platform} conectado!`);
+        void loadConfig();
+        onSaved();
+      } else {
+        toast.error(d.detail || `Falha no OAuth (${d.platform})`);
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [onSaved]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -107,6 +200,12 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
 
       await API.saveConfig({
         gemini_api_key: geminiKey.trim() || null,
+        instagram_app_id: igAppId.trim() || null,
+        instagram_app_secret: igAppSecret.trim() || null,
+        instagram_redirect_uri: igRedirect.trim() || null,
+        tiktok_client_key: ttClientKey.trim() || null,
+        tiktok_client_secret: ttClientSecret.trim() || null,
+        tiktok_redirect_uri: ttRedirect.trim() || null,
         channel: {
           name: chName.trim() || "GTA VI",
           handle: handle.trim() || "@BabyDragonOFC",
@@ -122,6 +221,17 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
           max_per_day: Number(maxDay) || 6,
           timezone: tz.trim() || "America/Sao_Paulo",
           ...(parsedSlots.length ? { slots: parsedSlots } : {}),
+        },
+        instagram: {
+          login_type: igLoginType,
+          share_to_feed: igShareFeed,
+        },
+        tiktok: {
+          post_mode: ttPostMode,
+          privacy_level: ttPrivacy,
+          disable_comment: ttDisableComment,
+          disable_duet: ttDisableDuet,
+          disable_stitch: ttDisableStitch,
         },
         monitor: { auto_upload: monAuto, sources: parsedSources },
         ingest: { cookies_from_browser: cookiesBrowser },
@@ -202,21 +312,132 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
     }
   };
 
+  const handleIgOAuth = async () => {
+    setSocialBusy("ig-oauth");
+    try {
+      await API.saveConfig({
+        instagram_app_id: igAppId.trim() || null,
+        instagram_app_secret: igAppSecret.trim() || null,
+        instagram_redirect_uri: igRedirect.trim() || null,
+        instagram: { login_type: igLoginType, share_to_feed: igShareFeed },
+      });
+      const r = await API.igOAuthStart(igLoginType, igRedirect.trim() || undefined);
+      window.open(r.auth_url, "clipsreal_ig_oauth", "width=560,height=720");
+      toast.info("Autorize o Instagram na janela aberta.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao iniciar OAuth do Instagram");
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const handleIgManual = async () => {
+    if (!igManualTok.trim()) {
+      toast.error("Cole o Access Token do Instagram.");
+      return;
+    }
+    setSocialBusy("ig-manual");
+    try {
+      const info = await API.igManualConnect(igManualTok, igManualUid, "auto");
+      setIgUser(info);
+      setIgManualTok("");
+      toast.success(`Instagram conectado: @${(info.username || info.ig_user_id || "").replace(/^@/, "")}`);
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Token inválido");
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const handleIgDisconnect = async () => {
+    setSocialBusy("ig-disc");
+    try {
+      await API.igDisconnect();
+      setIgUser({ connected: false });
+      toast.info("Instagram desconectado.");
+      onSaved();
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const handleTtOAuth = async () => {
+    setSocialBusy("tt-oauth");
+    try {
+      await API.saveConfig({
+        tiktok_client_key: ttClientKey.trim() || null,
+        tiktok_client_secret: ttClientSecret.trim() || null,
+        tiktok_redirect_uri: ttRedirect.trim() || null,
+        tiktok: {
+          post_mode: ttPostMode,
+          privacy_level: ttPrivacy,
+          disable_comment: ttDisableComment,
+          disable_duet: ttDisableDuet,
+          disable_stitch: ttDisableStitch,
+        },
+      });
+      const r = await API.ttOAuthStart(ttPostMode, ttRedirect.trim() || undefined);
+      window.open(r.auth_url, "clipsreal_tt_oauth", "width=560,height=720");
+      toast.info("Autorize o TikTok na janela aberta.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao iniciar OAuth do TikTok");
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const handleTtManual = async () => {
+    if (!ttManualTok.trim()) {
+      toast.error("Cole o Access Token do TikTok.");
+      return;
+    }
+    setSocialBusy("tt-manual");
+    try {
+      const info = await API.ttManualConnect(ttManualTok, ttManualOpenId);
+      setTtUser(info);
+      setTtManualTok("");
+      toast.success(`TikTok conectado: ${info.username || info.display_name || "OK"}`);
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Token TikTok inválido");
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const handleTtDisconnect = async () => {
+    setSocialBusy("tt-disc");
+    try {
+      await API.ttDisconnect();
+      setTtUser({ connected: false });
+      toast.info("TikTok desconectado.");
+      onSaved();
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const effectivePrivacyOptions = ttPrivacyOpts.length
+    ? ttPrivacyOpts
+    : ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl p-0">
         <div className="border-b border-zinc-800 px-6 py-4">
-          <DialogTitle>Chaves, YouTube &amp; Monitor</DialogTitle>
+          <DialogTitle>Chaves, Redes Sociais &amp; Monitor</DialogTitle>
           <DialogDescription className="mt-0.5">
-            Credenciais de IA, integração OAuth do YouTube, cookies de download e monitoramento RSS.
+            Credenciais de IA, YouTube, Instagram Reels, TikTok (cortes em pé 9:16) e Monitor RSS.
           </DialogDescription>
         </div>
 
-        <div className="flex gap-1 border-b border-zinc-800/80 px-6 py-2.5">
+        <div className="flex flex-wrap gap-1 border-b border-zinc-800/80 px-6 py-2.5">
           {(
             [
               ["ai", "IA & Cortes", KeyRound],
-              ["yt", "Canal & YouTube", Link2],
+              ["yt", "YouTube", Link2],
+              ["social", "Instagram & TikTok", Share2],
               ["mon", "Monitor RSS", Radio],
             ] as const
           ).map(([id, label, Icon]) => (
@@ -417,6 +638,289 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                     </select>
                   </div>
                   <p className="mt-1.5 text-xs text-zinc-400">{cookiesStatus}</p>
+                </div>
+              </div>
+            </div>
+          ) : tab === "social" ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Instagram Reels */}
+              <div className="rounded-lg border border-zinc-800/80 bg-[#16161a] p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-300">
+                    <Smartphone className="h-3.5 w-3.5 text-zinc-400" />
+                    <span>Instagram Reels (9:16)</span>
+                  </h3>
+                  {igUser.connected ? (
+                    <span className="inline-flex items-center gap-1.5 rounded bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-500/30">
+                      @{String(igUser.username || igUser.ig_user_id || "conectado").replace(/^@/, "")}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-zinc-500">Não conectado</span>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-col gap-2.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">Meta App ID</label>
+                      <input
+                        value={igAppId}
+                        onChange={(e) => setIgAppId(e.target.value)}
+                        placeholder="App ID"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">App Secret</label>
+                      <input
+                        type="password"
+                        value={igAppSecret}
+                        onChange={(e) => setIgAppSecret(e.target.value)}
+                        placeholder={igSecretSet ? "Já salvo (preencha p/ trocar)" : "App Secret"}
+                        autoComplete="off"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">Login OAuth</label>
+                      <select
+                        value={igLoginType}
+                        onChange={(e) => setIgLoginType(e.target.value as "instagram" | "facebook")}
+                        className={INPUT_CLS}
+                      >
+                        <option value="instagram">Instagram Login (direto)</option>
+                        <option value="facebook">Facebook Business Login</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">Redirect URI</label>
+                      <input
+                        value={igRedirect}
+                        onChange={(e) => setIgRedirect(e.target.value)}
+                        placeholder="http://localhost:8000/api/instagram/callback"
+                        className={cn(INPUT_CLS, "text-[11px]")}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-xs text-zinc-300">Compartilhar Reel no Feed principal</span>
+                    <Switch checked={igShareFeed} onCheckedChange={setIgShareFeed} />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={socialBusy !== null}
+                      onClick={handleIgOAuth}
+                    >
+                      <Link2 className="h-3.5 w-3.5" />
+                      <span>{igUser.connected ? "Reconectar OAuth" : "Conectar via OAuth"}</span>
+                    </Button>
+                    {igUser.connected && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={socialBusy !== null}
+                        onClick={handleIgDisconnect}
+                      >
+                        <Unlink className="h-3.5 w-3.5" />
+                        <span>Desconectar</span>
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="mt-1 border-t border-zinc-800/80 pt-2.5">
+                    <p className="mb-1.5 text-[11px] text-zinc-500">
+                      Ou cole um Token gerado no painel Meta for Developers (conta Profissional/Business):
+                    </p>
+                    <div className="grid grid-cols-[1fr_110px] gap-1.5">
+                      <input
+                        type="password"
+                        value={igManualTok}
+                        onChange={(e) => setIgManualTok(e.target.value)}
+                        placeholder="Access Token (IGAA... ou EAA...)"
+                        autoComplete="off"
+                        className={INPUT_CLS}
+                      />
+                      <input
+                        value={igManualUid}
+                        onChange={(e) => setIgManualUid(e.target.value)}
+                        placeholder="IG ID (opc.)"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      className="mt-2 w-full"
+                      disabled={socialBusy !== null}
+                      onClick={handleIgManual}
+                    >
+                      Conectar com Token
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* TikTok */}
+              <div className="rounded-lg border border-zinc-800/80 bg-[#16161a] p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-300">
+                    <Smartphone className="h-3.5 w-3.5 text-zinc-400" />
+                    <span>TikTok (9:16)</span>
+                  </h3>
+                  {ttUser.connected ? (
+                    <span className="inline-flex items-center gap-1.5 rounded bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300 border border-emerald-500/30">
+                      {ttUser.username
+                        ? `@${ttUser.username.replace(/^@/, "")}`
+                        : ttUser.display_name || ttUser.open_id || "Conectado"}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-zinc-500">Não conectado</span>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-col gap-2.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">Client Key</label>
+                      <input
+                        value={ttClientKey}
+                        onChange={(e) => setTtClientKey(e.target.value)}
+                        placeholder="Client Key"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">Client Secret</label>
+                      <input
+                        type="password"
+                        value={ttClientSecret}
+                        onChange={(e) => setTtClientSecret(e.target.value)}
+                        placeholder={ttSecretSet ? "Já salvo (preencha p/ trocar)" : "Client Secret"}
+                        autoComplete="off"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">Modo de envio</label>
+                      <select
+                        value={ttPostMode}
+                        onChange={(e) => setTtPostMode(e.target.value as "direct" | "inbox")}
+                        className={INPUT_CLS}
+                      >
+                        <option value="direct">Direto no perfil (video.publish)</option>
+                        <option value="inbox">Inbox / Rascunho (video.upload)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-400">Privacidade</label>
+                      <select
+                        value={ttPrivacy}
+                        onChange={(e) => setTtPrivacy(e.target.value)}
+                        className={INPUT_CLS}
+                      >
+                        {effectivePrivacyOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt === "PUBLIC_TO_EVERYONE"
+                              ? "Público"
+                              : opt === "MUTUAL_FOLLOW_FRIENDS"
+                                ? "Amigos mútuos"
+                                : opt === "FOLLOWER_OF_CREATOR"
+                                  ? "Seguidores"
+                                  : opt === "SELF_ONLY"
+                                    ? "Somente eu (Sandbox)"
+                                    : opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-[11px] text-zinc-400">Redirect URI (Desktop/HTTPS)</label>
+                    <input
+                      value={ttRedirect}
+                      onChange={(e) => setTtRedirect(e.target.value)}
+                      placeholder="http://127.0.0.1:8000/api/tiktok/callback"
+                      className={cn(INPUT_CLS, "text-[11px]")}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 text-[11px] text-zinc-400">
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <Switch checked={!ttDisableComment} onCheckedChange={(v) => setTtDisableComment(!v)} />
+                      <span>Comentários</span>
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <Switch checked={!ttDisableDuet} onCheckedChange={(v) => setTtDisableDuet(!v)} />
+                      <span>Dueto</span>
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                      <Switch checked={!ttDisableStitch} onCheckedChange={(v) => setTtDisableStitch(!v)} />
+                      <span>Costurar</span>
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={socialBusy !== null}
+                      onClick={handleTtOAuth}
+                    >
+                      <Link2 className="h-3.5 w-3.5" />
+                      <span>{ttUser.connected ? "Reconectar OAuth" : "Conectar via OAuth"}</span>
+                    </Button>
+                    {ttUser.connected && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={socialBusy !== null}
+                        onClick={handleTtDisconnect}
+                      >
+                        <Unlink className="h-3.5 w-3.5" />
+                        <span>Desconectar</span>
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="mt-1 border-t border-zinc-800/80 pt-2.5">
+                    <p className="mb-1.5 text-[11px] text-zinc-500">
+                      Ou conecte diretamente com Access Token (Sandbox / Teste):
+                    </p>
+                    <div className="grid grid-cols-[1fr_110px] gap-1.5">
+                      <input
+                        type="password"
+                        value={ttManualTok}
+                        onChange={(e) => setTtManualTok(e.target.value)}
+                        placeholder="Access Token (act....)"
+                        autoComplete="off"
+                        className={INPUT_CLS}
+                      />
+                      <input
+                        value={ttManualOpenId}
+                        onChange={(e) => setTtManualOpenId(e.target.value)}
+                        placeholder="Open ID (opc.)"
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      className="mt-2 w-full"
+                      disabled={socialBusy !== null}
+                      onClick={handleTtManual}
+                    >
+                      Conectar com Token
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

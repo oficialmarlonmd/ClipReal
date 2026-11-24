@@ -155,6 +155,7 @@ export function App() {
               onRefreshJob={() => refreshActiveJob(currentJobId)}
               onRefreshStatus={refreshStatus}
               onSwitchView={handleSwitchView}
+              onOpenSettings={handleOpenSettings}
               onRequestConfirm={handleRequestConfirm}
             />
           )}

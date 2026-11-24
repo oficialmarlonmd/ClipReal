@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS clips (
     youtube_id TEXT,
     publish_at TEXT,
     error TEXT,
+    ig_status TEXT DEFAULT '',
+    ig_media_id TEXT DEFAULT '',
+    ig_url TEXT DEFAULT '',
+    ig_error TEXT DEFAULT '',
+    tiktok_status TEXT DEFAULT '',
+    tiktok_publish_id TEXT DEFAULT '',
+    tiktok_url TEXT DEFAULT '',
+    tiktok_error TEXT DEFAULT '',
     created_at REAL
 );
 CREATE TABLE IF NOT EXISTS seen_videos (
@@ -65,10 +73,21 @@ CREATE TABLE IF NOT EXISTS seen_videos (
 
 with _lock:
     _conn.executescript(SCHEMA)
-    try:
-        _conn.execute("ALTER TABLE clips ADD COLUMN render_mode TEXT DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass
+    for _col_def in (
+        "render_mode TEXT DEFAULT ''",
+        "ig_status TEXT DEFAULT ''",
+        "ig_media_id TEXT DEFAULT ''",
+        "ig_url TEXT DEFAULT ''",
+        "ig_error TEXT DEFAULT ''",
+        "tiktok_status TEXT DEFAULT ''",
+        "tiktok_publish_id TEXT DEFAULT ''",
+        "tiktok_url TEXT DEFAULT ''",
+        "tiktok_error TEXT DEFAULT ''",
+    ):
+        try:
+            _conn.execute(f"ALTER TABLE clips ADD COLUMN {_col_def}")
+        except sqlite3.OperationalError:
+            pass
     _conn.commit()
     _CLIP_COLS = {r[1] for r in _conn.execute("PRAGMA table_info(clips)").fetchall()}
 

@@ -10,13 +10,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { StatusResponse, ViewId } from "@/types";
+import type { SettingsTab, StatusResponse, ViewId } from "@/types";
 
 interface Props {
   view: ViewId;
   onSelectView: (v: ViewId) => void;
   status: StatusResponse | null;
-  onOpenSettings: (tab?: "ai" | "yt" | "mon") => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
 }
 
 const NAV_ITEMS: { id: ViewId; label: string; icon: typeof Scissors }[] = [

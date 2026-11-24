@@ -9,7 +9,8 @@ import threading
 import traceback
 from pathlib import Path
 
-from . import captions, censor, db, highlights, ingest, lang as lang_utils, media, metadata, render, thumbnail, transcribe, youtube
+from . import (captions, censor, db, highlights, ingest, instagram, lang as lang_utils, media, metadata,
+               render, thumbnail, tiktok, transcribe, youtube)
 from .config import BROLL_DIR, CFG, JOBS_DIR
 
 log = logging.getLogger("clipsreal.pipeline")
@@ -314,6 +315,72 @@ def upload_clip(clip_id: int, schedule: str | None = "auto") -> None:
         db.update_clip(clip_id, youtube_id=vid, status="scheduled" if publish_at else "uploaded")
     except Exception as e:  # noqa: BLE001
         db.update_clip(clip_id, status="error", publish_at=None, error=youtube.friendly_upload_error(e)[-1500:])
+        raise
+
+
+def assert_vertical_clip(clip: dict) -> Path:
+    """Garante que o corte existe em disco e está no formato vertical (em pé) para Reels/TikTok."""
+    if not clip:
+        raise ValueError("Corte não encontrado")
+    if clip.get("kind") == "long":
+        raise ValueError("Instagram Reels e TikTok aceitam apenas cortes verticais (em pé, 9:16), não compilações 16:9.")
+    fp = clip.get("file_path")
+    if not fp or not Path(fp).is_file():
+        raise ValueError("Corte ainda não foi renderizado")
+    path = Path(fp)
+    try:
+        info = media.probe(path)
+        w, h = int(info.get("width") or 0), int(info.get("height") or 0)
+        if w and h and w > h:
+            raise ValueError(f"O vídeo ({w}x{h}) está horizontal. Renderize em um formato em pé (9:16) para Reels/TikTok.")
+    except ValueError:
+        raise
+    except Exception:  # noqa: BLE001
+        pass
+    return path
+
+
+def _social_caption(clip: dict, max_len: int = 2200) -> str:
+    title = str(clip.get("title") or "").strip()
+    desc = str(clip.get("description") or "").strip()
+    tags = [str(t).strip() for t in (clip.get("hashtags") or []) if str(t).strip()]
+    base = f"{title}\n\n{desc}".strip() if (title and desc and title.lower() not in desc.lower()) else (desc or title)
+    low = base.lower()
+    extra = [t if t.startswith("#") else f"#{t}" for t in tags if t.lower() not in low]
+    if extra:
+        base = f"{base}\n\n{' '.join(extra)}".strip()
+    return base[:max_len]
+
+
+def upload_instagram_clip(clip_id: int, share_to_feed: bool | None = None) -> None:
+    clip = db.get_clip(clip_id)
+    job = db.get_job(clip["job_id"])
+    cfg = _resolve_job_cfg(job_cfg(job.get("options")), job_dir(job["id"]),
+                           title=job.get("title") or "", clip_text=clip.get("transcript") or clip.get("description") or "")
+    try:
+        video = assert_vertical_clip(clip)
+        db.update_clip(clip_id, ig_status="uploading", ig_error="")
+        res = instagram.upload_reel(video, _social_caption(clip, 2200), cfg, share_to_feed=share_to_feed)
+        db.update_clip(clip_id, ig_status="published", ig_media_id=res["id"], ig_url=res.get("url") or "", ig_error="")
+    except Exception as e:  # noqa: BLE001
+        db.update_clip(clip_id, ig_status="error", ig_error=instagram.friendly_error(e)[-1500:])
+        raise
+
+
+def upload_tiktok_clip(clip_id: int, privacy_level: str | None = None, post_mode: str | None = None) -> None:
+    clip = db.get_clip(clip_id)
+    job = db.get_job(clip["job_id"])
+    cfg = _resolve_job_cfg(job_cfg(job.get("options")), job_dir(job["id"]),
+                           title=job.get("title") or "", clip_text=clip.get("transcript") or clip.get("description") or "")
+    try:
+        video = assert_vertical_clip(clip)
+        db.update_clip(clip_id, tiktok_status="uploading", tiktok_error="")
+        res = tiktok.upload_video(video, _social_caption(clip, 2200), cfg,
+                                  privacy_level=privacy_level, post_mode=post_mode)
+        db.update_clip(clip_id, tiktok_status=res["status"], tiktok_publish_id=res["publish_id"],
+                       tiktok_url=res.get("url") or "", tiktok_error="")
+    except Exception as e:  # noqa: BLE001
+        db.update_clip(clip_id, tiktok_status="error", tiktok_error=tiktok.friendly_error(e)[-1500:])
         raise
 
 
