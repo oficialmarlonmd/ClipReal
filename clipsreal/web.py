@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import mimetypes
 import os
 import shutil
 import tempfile
@@ -34,6 +35,8 @@ async def _lifespan(_app: FastAPI):
     yield
 
 
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
 app = FastAPI(title="ClipsReal", lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -70,7 +73,10 @@ def data_file(path: str):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    dist_index = STATIC / "dist" / "index.html"
+    if not dist_index.is_file():
+        raise HTTPException(503, "Frontend não compilado. Execute: npm --prefix frontend run build")
+    return FileResponse(dist_index, headers={"Cache-Control": "no-store, must-revalidate"})
 
 
 # ----------------------------------------------------------------- status
@@ -231,6 +237,7 @@ class RenderOptsIn(BaseModel):
     hook_style: str | None = None
     hook_position: str | None = None
     dopamine_video: str | None = None
+    captions: bool | None = None
     use_saved_style: bool = True
 
 
@@ -240,7 +247,7 @@ def rerender(clip_id: int, opts: RenderOptsIn | None = Body(default=None)):
     if not clip:
         raise HTTPException(404)
     o = opts.model_dump() if opts else {}
-    overrides = {k: o[k] for k in ("mode", "cam_position", "hook_style", "hook_position", "dopamine_video")
+    overrides = {k: o[k] for k in ("mode", "cam_position", "hook_style", "hook_position", "dopamine_video", "captions")
                  if o.get(k) is not None}
     if overrides.get("mode"):
         db.update_clip(clip_id, render_mode=overrides["mode"])
@@ -251,20 +258,25 @@ def rerender(clip_id: int, opts: RenderOptsIn | None = Body(default=None)):
 
 
 class BatchRenderIn(BaseModel):
-    clip_ids: list[int]
+    clip_ids: list[int] | None = None
+    job_id: int | None = None
     mode: str | None = None
     cam_position: str | None = None
     hook_style: str | None = None
     hook_position: str | None = None
     dopamine_video: str | None = None
+    captions: bool | None = None
 
 
 @app.post("/api/clips/render-batch")
 def render_batch(b: BatchRenderIn):
-    overrides = {k: getattr(b, k) for k in ("mode", "cam_position", "hook_style", "hook_position", "dopamine_video")
+    overrides = {k: getattr(b, k) for k in ("mode", "cam_position", "hook_style", "hook_position", "dopamine_video", "captions")
                  if getattr(b, k) is not None}
+    ids = list(b.clip_ids) if b.clip_ids else []
+    if not ids and b.job_id:
+        ids = [c["id"] for c in db.list_clips(b.job_id)]
     queued = 0
-    for cid in b.clip_ids:
+    for cid in ids:
         c = db.get_clip(cid)
         if not c or c.get("kind") == "long":
             continue
@@ -289,7 +301,12 @@ class UploadIn(BaseModel):
 def upload_clip(clip_id: int, u: UploadIn):
     if not youtube.is_authenticated():
         raise HTTPException(400, "Conecte o YouTube primeiro")
-    db.update_clip(clip_id, status="uploading")
+    clip = db.get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404)
+    if not clip.get("file_path") or not Path(clip["file_path"]).is_file():
+        raise HTTPException(400, "Corte ainda não foi renderizado")
+    db.update_clip(clip_id, status="uploading", error=None)
     pipeline.submit(pipeline.upload_clip, clip_id, u.schedule, uploads=True)
     return {"ok": True}
 
@@ -482,7 +499,10 @@ def get_schedule():
         key=lambda x: x["publish_at"],
     )
     published = [c for c in all_clips if c.get("status") == "uploaded" or (c.get("youtube_id") and not c.get("publish_at"))]
-    ready = [c for c in all_clips if c.get("status") == "rendered" and not c.get("youtube_id")]
+    ready = [
+        c for c in all_clips
+        if c.get("status") in ("rendered", "error") and c.get("file_path") and not c.get("youtube_id")
+    ]
     taken = db.scheduled_publish_times()
     upcoming = []
     sim_taken = list(taken)

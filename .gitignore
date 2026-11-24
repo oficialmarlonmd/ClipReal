@@ -10,3 +10,5 @@ client_secret*.json
 youtube_token.json
 cookies.txt
 *cookies*.txt
+frontend/node_modules/
+*.tsbuildinfo

@@ -54,17 +54,22 @@ _HOOK_STYLES = {
 
 def _hook_layout(rcfg: dict, height: int, has_broll: bool = False) -> tuple[int, int]:
     mode = (rcfg.get("mode") or "blur").strip().lower()
-    pos = (rcfg.get("hook_position") or "auto").strip().lower()
+    raw_pos = (rcfg.get("hook_position") or "auto").strip().lower()
+    is_framed = mode in ("blur", "card", "fit")
+    pos = raw_pos
     if pos == "auto":
         pos = "middle" if mode in ("dual", "dual_dopamine") else "top"
+    elif is_framed and pos == "middle":
+        # Em modos com janela 16:9 centralizada (blur/card/fit), "middle" nunca deve cobrir o centro do vídeo.
+        pos = "top"
     if pos == "middle":
         if mode == "dual":
             return 8, int(height * 0.345)
         if mode == "dual_dopamine":
             return 8, int(height * (0.465 if has_broll else 0.365))
         return 5, 0
-    if mode == "card":
-        return 8, int(height * 0.14)
+    if is_framed:
+        return 8, int(height * (0.11 if raw_pos == "top" else 0.15))
     return 8, int(height * 0.11)
 
 

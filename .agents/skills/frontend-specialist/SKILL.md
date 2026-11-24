@@ -1,29 +1,37 @@
 ---
 name: frontend-specialist
 description: >-
-  Arquiteta e implementa alterações na interface web do ClipsReal usando HTML5 semântico, CSS3 com tokens de tema e JavaScript ES6+ modular (sem framework/bundler). Use quando o usuário pedir criação ou ajuste de telas, modais, controles de edição de cortes, upload, polling ou refatoração de UI/UX em clipsreal/static/.
+  Arquiteta e implementa alterações na interface web do ClipsReal usando React 19, TypeScript estrito, Vite, Tailwind CSS v4, Radix UI, Lucide React e Sonner. Use quando o usuário pedir criação ou ajuste de telas, modais, controles de edição de cortes, upload, polling ou refatoração de UI/UX em frontend/.
 ---
 
 # Especialista em Front-end — ClipsReal Studio
 
-Você atua como Engenheiro de Front-end Sênior mantendo a interface leve, sem build step e responsiva do painel web do ClipsReal (`http://localhost:8000`).
+Você atua como Engenheiro de Front-end Sênior mantendo a interface profissional de estúdio do painel web do ClipsReal (`http://localhost:8000`).
 
 ## Stack & Estrutura do Projeto
-- **Arquivos:** `clipsreal/static/index.html` (marcação e modais), `clipsreal/static/style.css` (design tokens em `:root` `--bg`, `--card`, `--pink`, `--cyan`, `--green`, layout responsivo), `clipsreal/static/app.js` (lógica de estado, polling e chamadas REST).
-- **Views (`VIEW_META`):** `studio`, `brand`, `library`, `calendar`, `analytics`, `billing` e modal de configuração `#cfg-modal` (`ai`, `yt`, `mon`).
-- **Formatos (`FMT_META`):** `blur`, `dual`, `dual_dopamine`, `card`, `face`, `crop`, `fit`.
-- **Helpers existentes em `app.js`:** `$()`, `$$()`, `esc()`, `api()`, `toast()`, `applyDefaultsToMainBar()`, `refreshBrollSelect()`.
+- **Fonte:** `frontend/` (React 19 + TypeScript estrito + Vite 6 + Tailwind CSS v4 via `@tailwindcss/vite` + `@radix-ui/react-dialog` + `@radix-ui/react-switch` + `lucide-react` + `sonner`).
+- **Build de produção:** `npm --prefix frontend run build` gera assets com hash de conteúdo em `clipsreal/static/dist/` (`base: "/static/dist/"`), servidos diretamente pelo FastAPI (`clipsreal/web.py`) com `Cache-Control: no-store, must-revalidate` no `index.html`.
+- **Arquivos principais em `frontend/src/`:**
+  - `App.tsx` (estado global leve, roteamento por `ViewId`, polling de 2.5s, `<Toaster>`)
+  - `types.ts` (contratos TypeScript alinhados aos endpoints de `clipsreal/web.py`)
+  - `lib/api.ts` (`api<T>()`, `uploadWithProgress<T>()`, objeto `API`)
+  - `lib/utils.ts` (`cn()`, `FMT_META`, `VIEW_META`, `SCORE_LABELS`, helpers de badge/status)
+  - `components/ui/` (`button.tsx`, `dialog.tsx`, `switch.tsx`)
+  - `components/` (`Sidebar.tsx`, `Topbar.tsx`, `SettingsDialog.tsx`, `ConfirmDialog.tsx`)
+  - `views/` (`StudioView.tsx`, `ClipCard.tsx`, `BrandKitView.tsx`, `LibraryView.tsx`, `CalendarView.tsx`, `AnalyticsView.tsx`, `WorkspaceView.tsx`)
 
-## Regras de Implementação
-1. **Sem dependências externas desnecessárias:** mantenha Vanilla HTML/CSS/JS compatível com carregamento direto via `StaticFiles` do FastAPI (`clipsreal/web.py`) sem introduzir React/Vue/bundlers, salvo solicitação explícita.
-2. **Segurança (XSS):** sempre envolva dados vindos do usuário, títulos de vídeo, transcrições ou URLs com `esc(...)` antes de interpolar em `innerHTML`.
-3. **Preservação de Edição & Polling:** respeite a trava `data-dirty='1'` e a checagem de foco (`document.activeElement?.closest?.(".clip")`) para que o `setInterval` de polling nunca sobrescreva títulos, descrições ou timestamps que o usuário estiver editando.
-4. **Estados de Interface & Upload:**
-   - Trate carregamento, vazio, erro (`toast(msg, "err")` + botão de retry) e progresso de upload multipart (`XMLHttpRequest` com `#upbar` e `#upbar-txt`).
-   - Em inputs numéricos que aceitam `0` (como `min_score`), nunca use `|| default` (que converte `0` em fallback); trate string vazia explicitamente (`=== ""`).
-5. **Acessibilidade & Responsividade:** preserve atributos `type="button"`, `hidden`, labels claros e teste a quebra em desktop e viewport estreito (`@media`), mantendo sincronia com os `BaseModel` de `clipsreal/web.py`.
+## Direção Visual & Regras de Implementação
+1. **Estética de Estúdio Profissional (sem "vibe coding"):**
+   - Paleta dark neutra em carbono/zinco (`#09090b`, `#0d0d10`, `#121216`, bordas `zinc-800/80`), ações primárias em branco nítido (`bg-zinc-50 text-zinc-950`) e pontos semânticos discretos (`emerald`, `amber`, `sky`, `rose`).
+   - Proibido usar gradientes neon rosa/roxo/laranja, blobs radiais decorativos, emojis espalhados na interface ou links de acessibilidade visíveis fora de foco.
+2. **Modais & Controles Acessíveis:**
+   - Use os wrappers de `@radix-ui/react-dialog` (`components/ui/dialog.tsx`) e `@radix-ui/react-switch` (`components/ui/switch.tsx`), nunca `window.confirm()` ou `<dialog>` sem estilização consistente.
+3. **Preservação de Edição & Polling:**
+   - Em `ClipCard.tsx`, respeite a flag `dirty` para que o polling de 2.5s nunca sobrescreva títulos, descrições ou timestamps que o usuário estiver editando.
+4. **Inputs Numéricos & Upload:**
+   - Em campos que aceitam `0` (como `min_score`), trate string vazia explicitamente (`=== ""`) sem usar `|| default`.
+   - Mantenha upload multipart com progresso real via `uploadWithProgress` (`XMLHttpRequest`).
 
 ## Validação Antes de Concluir
-- Execute `node --check clipsreal/static/app.js` (ou equivalente instalado) para garantir zero erros de sintaxe JS.
-- Verifique que todos os IDs referenciados em `app.js` existem em `clipsreal/static/index.html` e correspondem aos campos esperados em `clipsreal/web.py`.
-- Confirme `GET /` e `GET /api/status` via `TestClient(app)` retornando HTTP `200`.
+- Execute `npm --prefix frontend run build` (`tsc -b && vite build`) e confirme zero erros de TypeScript ou bundling.
+- Confirme via FastAPI `TestClient(app)` que `GET /` retorna `200` com `Cache-Control: no-store`, servindo `clipsreal/static/dist/index.html`, e que os assets `.js` e `.css` referenciados retornam `200`.

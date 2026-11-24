@@ -15,6 +15,29 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googlea
 TOKEN = DATA / "youtube_token.json"
 
 
+def friendly_upload_error(exc: Exception) -> str:
+    """Converte erros comuns da YouTube Data API v3 em orientação clara sem perder o motivo."""
+    raw = str(exc)
+    if "uploadLimitExceeded" in raw:
+        return (
+            "Limite diário de uploads do canal atingido no YouTube (uploadLimitExceeded). "
+            "O YouTube bloqueia novos envios via API por ~24h (mesmo agendados). "
+            "Para aumentar o limite, ative os Recursos Avançados em studio.youtube.com "
+            "(Configurações → Canal → Qualificação para recursos) e tente reenviar amanhã."
+        )
+    if "quotaExceeded" in raw:
+        return (
+            "Cota diária da YouTube Data API v3 atingida (quotaExceeded: 10.000 unidades/dia ≈ 6 vídeos). "
+            "Aguarde a renovação diária da API ou reduza Máx/dia nas configurações."
+        )
+    if "youtubeSignupRequired" in raw or "channelNotFound" in raw:
+        return (
+            "A conta Google conectada não possui canal do YouTube ativo (youtubeSignupRequired). "
+            "Crie o canal no YouTube e reconecte em Canal & YouTube."
+        )
+    return f"Upload: {raw}"
+
+
 def is_authenticated() -> bool:
     return TOKEN.exists()
 

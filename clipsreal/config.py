@@ -26,7 +26,7 @@ for d in (DATA, JOBS_DIR, UPLOADS_DIR, BROLL_DIR, CRED_DIR):
 
 DEFAULTS: dict = {
     "workspace": {
-        "plan": "Pro", "owner_name": "Criador GTA 6", "brand_tagline": "GTA 6 Studio",
+        "plan": "Pro", "owner_name": "Criador GTA 6", "brand_tagline": "Clip's Studio",
         "license_key": "", "onboarding_dismissed": False,
     },
     "channel": {

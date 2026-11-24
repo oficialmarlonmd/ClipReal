@@ -313,7 +313,7 @@ def upload_clip(clip_id: int, schedule: str | None = "auto") -> None:
                              else None)
         db.update_clip(clip_id, youtube_id=vid, status="scheduled" if publish_at else "uploaded")
     except Exception as e:  # noqa: BLE001
-        db.update_clip(clip_id, status="error", publish_at=None, error=f"Upload: {e}"[-1500:])
+        db.update_clip(clip_id, status="error", publish_at=None, error=youtube.friendly_upload_error(e)[-1500:])
         raise
 
 
