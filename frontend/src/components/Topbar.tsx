@@ -42,6 +42,9 @@ export function Topbar({ view, status, onSelectView, onOpenSettings, onRefreshSt
       Boolean(status?.oauth_broker_url) ||
       (platform === "instagram" ? Boolean(status?.instagram_configured) : Boolean(status?.tiktok_configured));
     if (!canOneClick) {
+      toast.info(
+        `Para conectar ${platform === "instagram" ? "Instagram" : "TikTok"}, informe a URL do OAuth Broker ou cole Token/Chaves abaixo.`,
+      );
       onOpenSettings("social");
       return;
     }

@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
+import httpx
 from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -641,6 +642,35 @@ def youtube_disconnect():
     return {"ok": True}
 
 
+class BrokerCheckIn(BaseModel):
+    broker_url: str = ""
+
+
+@app.post("/api/oauth/broker-check")
+def oauth_broker_check(b: BrokerCheckIn):
+    target = (b.broker_url or oauth_broker_url() or "").strip().rstrip("/")
+    if not target:
+        raise HTTPException(400, "Informe a URL do OAuth Broker (ex.: https://seu-worker.workers.dev).")
+    u = urlparse(target)
+    if u.scheme not in ("http", "https") or not u.netloc:
+        raise HTTPException(400, "URL inválida. Use https://... (ou http://localhost...)")
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            r = client.get(f"{target}/health")
+        if not r.is_success:
+            raise HTTPException(400, f"Broker respondeu HTTP {r.status_code}")
+        data = r.json()
+        return {
+            "ok": bool(data.get("ok")),
+            "url": target,
+            "providers": data.get("providers") or {},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"Não foi possível conectar ao Broker: {e}")
+
+
 @app.post("/api/oauth/broker-complete")
 def oauth_broker_complete(b: BrokerCompleteIn):
     try:
@@ -820,16 +850,19 @@ def update_config(c: ConfigIn):
         set_env_var("GEMINI_API_KEY", c.gemini_api_key.strip())
     if c.oauth_broker_url is not None:
         set_env_var("OAUTH_BROKER_URL", c.oauth_broker_url.strip().rstrip("/"))
-    for field, env_name in (
-        (c.instagram_app_id, "INSTAGRAM_APP_ID"),
-        (c.instagram_app_secret, "INSTAGRAM_APP_SECRET"),
-        (c.instagram_redirect_uri, "INSTAGRAM_REDIRECT_URI"),
-        (c.tiktok_client_key, "TIKTOK_CLIENT_KEY"),
-        (c.tiktok_client_secret, "TIKTOK_CLIENT_SECRET"),
-        (c.tiktok_redirect_uri, "TIKTOK_REDIRECT_URI"),
+    for field, env_name, default_val in (
+        (c.instagram_app_id, "INSTAGRAM_APP_ID", None),
+        (c.instagram_app_secret, "INSTAGRAM_APP_SECRET", None),
+        (c.instagram_redirect_uri, "INSTAGRAM_REDIRECT_URI", instagram_redirect_uri()),
+        (c.tiktok_client_key, "TIKTOK_CLIENT_KEY", None),
+        (c.tiktok_client_secret, "TIKTOK_CLIENT_SECRET", None),
+        (c.tiktok_redirect_uri, "TIKTOK_REDIRECT_URI", tiktok_redirect_uri()),
     ):
         if field is not None and field.strip():
-            set_env_var(env_name, field.strip())
+            val = field.strip()
+            if default_val is not None and val == default_val and not os.getenv(env_name):
+                continue
+            set_env_var(env_name, val)
     trans = dict(c.transcription) if c.transcription is not None else None
     if trans is not None and "language" in trans:
         raw_lang = (trans["language"] or "").strip().lower()

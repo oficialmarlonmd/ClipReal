@@ -58,6 +58,8 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
   const [monAuto, setMonAuto] = useState(false);
 
   const [brokerUrl, setBrokerUrl] = useState("");
+  const [brokerCheckMsg, setBrokerCheckMsg] = useState("");
+  const [brokerProviders, setBrokerProviders] = useState<{ youtube?: boolean; instagram?: boolean; tiktok?: boolean } | null>(null);
   const [ytConnected, setYtConnected] = useState(false);
 
   // Instagram & TikTok
@@ -458,6 +460,32 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
     }
   };
 
+  const handleCheckBroker = async () => {
+    const clean = brokerUrl.trim().replace(/\/+$/, "");
+    if (!clean) {
+      setBrokerCheckMsg("Cole a URL https://... do Cloudflare Worker antes de testar.");
+      setBrokerProviders(null);
+      return;
+    }
+    setSocialBusy("broker-check");
+    setBrokerCheckMsg("Verificando OAuth Broker…");
+    try {
+      const r = await API.brokerCheck(clean);
+      setBrokerProviders(r.providers);
+      await API.saveConfig({ oauth_broker_url: clean, auth: { broker_url: clean } });
+      setBrokerCheckMsg("Broker online e salvo! Veja os provedores ativos:");
+      onSaved();
+    } catch (e) {
+      setBrokerProviders(null);
+      setBrokerCheckMsg(e instanceof Error ? e.message : "Falha ao testar Broker");
+    } finally {
+      setSocialBusy(null);
+    }
+  };
+
+  const igReady = Boolean(brokerUrl.trim() || (igAppId.trim() && igSecretSet));
+  const ttReady = Boolean(brokerUrl.trim() || (ttClientKey.trim() && ttSecretSet));
+
   const effectivePrivacyOptions = ttPrivacyOpts.length
     ? ttPrivacyOpts
     : ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"];
@@ -709,17 +737,47 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
             </div>
           ) : tab === "social" ? (
             <div className="space-y-4">
-              {!brokerUrl.trim() && (
-                <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-xs text-zinc-400">
-                  Para seus amigos conectarem <strong>Google, Instagram e TikTok em 1 clique</strong> sem criar apps nos portais, publique <code className="text-zinc-200">oauth-broker/worker.js</code> (grátis no Cloudflare) e cole a URL abaixo:
+              <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-xs text-zinc-400">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <strong className="text-zinc-200">Login 1 Clique (OAuth Broker MVP):</strong>{" "}
+                    {brokerUrl.trim()
+                      ? "URL configurada — seus amigos entram só com a conta deles."
+                      : "para conectar Instagram/TikTok/Google sem App ID em cada PC, suba "}
+                    {!brokerUrl.trim() && <code className="text-zinc-200">oauth-broker/worker.js</code>}
+                    {!brokerUrl.trim() && " (grátis no Cloudflare) ou use Token direto abaixo."}
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
                   <input
                     value={brokerUrl}
                     onChange={(e) => setBrokerUrl(e.target.value)}
                     placeholder="https://clipsreal-oauth-broker.seu-usuario.workers.dev"
-                    className={cn(INPUT_CLS, "mt-2")}
+                    className={cn(INPUT_CLS, "min-w-[240px] flex-1")}
                   />
+                  <Button size="sm" disabled={socialBusy !== null} onClick={handleCheckBroker}>
+                    Testar Broker
+                  </Button>
                 </div>
-              )}
+                {brokerCheckMsg && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-300">
+                    <span>{brokerCheckMsg}</span>
+                    {brokerProviders && (
+                      <>
+                        <span className={brokerProviders.youtube ? "text-emerald-400" : "text-rose-400"}>
+                          YouTube: {brokerProviders.youtube ? "OK" : "falta secret"}
+                        </span>
+                        <span className={brokerProviders.instagram ? "text-emerald-400" : "text-rose-400"}>
+                          Instagram: {brokerProviders.instagram ? "OK" : "falta secret"}
+                        </span>
+                        <span className={brokerProviders.tiktok ? "text-emerald-400" : "text-rose-400"}>
+                          TikTok: {brokerProviders.tiktok ? "OK" : "falta secret"}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className="grid gap-4 md:grid-cols-2">
               {/* Instagram Reels */}
               <div className="rounded-lg border border-zinc-800/80 bg-[#16161a] p-4">
@@ -742,8 +800,9 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                     <Button
                       variant="primary"
                       size="sm"
-                      disabled={socialBusy !== null}
+                      disabled={socialBusy !== null || !igReady}
                       onClick={handleIgOAuth}
+                      title={!igReady ? "Configure a URL do OAuth Broker ou App ID/Secret abaixo" : undefined}
                     >
                       <Link2 className="h-3.5 w-3.5" />
                       <span>{igUser.connected ? "Trocar conta Instagram" : "Entrar com Instagram"}</span>
@@ -760,13 +819,18 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                       </Button>
                     )}
                   </div>
+                  {!igUser.connected && !igReady && (
+                    <p className="text-[11px] text-amber-300/90">
+                      Para ativar: cole a URL do OAuth Broker acima ou preencha Token / App ID abaixo.
+                    </p>
+                  )}
 
                   <div className="flex items-center justify-between pt-0.5">
                     <span className="text-xs text-zinc-300">Compartilhar Reel no Feed principal</span>
                     <Switch checked={igShareFeed} onCheckedChange={setIgShareFeed} />
                   </div>
 
-                  <details className="rounded-md border border-zinc-800/80 bg-zinc-950/60 p-2.5">
+                  <details open={!igUser.connected && !igReady} className="rounded-md border border-zinc-800/80 bg-zinc-950/60 p-2.5">
                     <summary className="cursor-pointer text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
                       Configuração avançada (App ID próprio ou Token direto)
                     </summary>
@@ -874,8 +938,9 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                     <Button
                       variant="primary"
                       size="sm"
-                      disabled={socialBusy !== null}
+                      disabled={socialBusy !== null || !ttReady}
                       onClick={handleTtOAuth}
+                      title={!ttReady ? "Configure a URL do OAuth Broker ou Client Key/Secret abaixo" : undefined}
                     >
                       <Link2 className="h-3.5 w-3.5" />
                       <span>{ttUser.connected ? "Trocar conta TikTok" : "Entrar com TikTok"}</span>
@@ -892,6 +957,11 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                       </Button>
                     )}
                   </div>
+                  {!ttUser.connected && !ttReady && (
+                    <p className="text-[11px] text-amber-300/90">
+                      Para ativar: cole a URL do OAuth Broker acima ou preencha Token / Client Key abaixo.
+                    </p>
+                  )}
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -944,7 +1014,7 @@ export function SettingsDialog({ open, initialTab, onOpenChange, onSaved, onJobs
                     </label>
                   </div>
 
-                  <details className="rounded-md border border-zinc-800/80 bg-zinc-950/60 p-2.5">
+                  <details open={!ttUser.connected && !ttReady} className="rounded-md border border-zinc-800/80 bg-zinc-950/60 p-2.5">
                     <summary className="cursor-pointer text-[11px] font-medium text-zinc-400 hover:text-zinc-200">
                       Configuração avançada (Client Key própria ou Token direto)
                     </summary>

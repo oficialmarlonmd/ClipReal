@@ -132,6 +132,11 @@ export const API = {
       method: "POST",
       body: JSON.stringify({ provider, client_state: clientState, token_bundle: tokenBundle }),
     }),
+  brokerCheck: (brokerUrl: string) =>
+    api<{ ok: boolean; url: string; providers: { youtube?: boolean; instagram?: boolean; tiktok?: boolean } }>(
+      "/api/oauth/broker-check",
+      { method: "POST", body: JSON.stringify({ broker_url: brokerUrl }) },
+    ),
   uploadSecret: (fd: FormData) => api<{ ok: boolean }>("/api/youtube/secret", { method: "POST", body: fd }),
   uploadCookies: (fd: FormData) => api<{ ok: boolean }>("/api/youtube/cookies", { method: "POST", body: fd }),
   brollList: () => api<BrollItem[]>("/api/broll"),
